@@ -24,7 +24,7 @@ GSI＋PLATEAU高さ＋LOD2屋根形状でリアルな日本の街を生成する
 5. 生成開始ボタンを押す
 
 ## ダウンロード
-（Releasesページにexeを公開予定）
+https://github.com/my1172-tech/ArnisPLATEAU/releases/tag/v0.1.0
 
 ## クレジット・謝辞
 本アプリはmusoukun氏および世界中の有志の皆様のオープンソース活動に支えられています。心より感謝申し上げます。
