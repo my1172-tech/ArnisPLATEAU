@@ -6,7 +6,6 @@ GSI＋PLATEAU高さ＋LOD2屋根形状でリアルな日本の街を生成する
 - PLATEAU APIから建物の実測高さ（measuredHeight）を自動取得
 - PLATEAU LOD2 CityGMLによる屋根形状の再現
 - Luanti・Bedrock・Java Edition 全3形式で出力対応
-- 商用利用可能（Luanti版はMinecraftライセンス不要）
 - GUIアプリ（地図でエリア選択→ワンクリック生成）
 
 ## plateau2minecraft（国交省公式）との違い
