@@ -54,3 +54,7 @@ gen/
 !/flake/flake.lock
 # test output
 test_output
+
+# Debug / large generated files
+satellite_debug.png
+/plateau_test/

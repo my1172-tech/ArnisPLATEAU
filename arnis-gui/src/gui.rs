@@ -6,6 +6,7 @@ use crate::data_processing::{self, GenerationOptions};
 use crate::ground::{self, Ground};
 use crate::map_transformation;
 use crate::osm_parser;
+use crate::overture;
 use crate::progress::{self, emit_gui_progress_update};
 use crate::retrieve_data;
 use crate::telemetry::{self, send_log, LogLevel};
@@ -62,6 +63,43 @@ impl Drop for SessionLock {
     }
 }
 
+/// Removes a freshly created Java world directory. Called whenever generation
+/// bails out before producing anything useful, so the user isn't left with a
+/// growing pile of empty "Arnis World N" folders.
+fn remove_new_java_world(path: &Path) {
+    if path.exists() {
+        if let Err(e) = fs::remove_dir_all(path) {
+            eprintln!("Failed to remove newly created world after failure: {e}");
+        }
+    }
+}
+
+/// RAII guard that removes a newly created Java world on drop unless disarmed.
+/// Must be declared *before* any `SessionLock` so the lock's file handle is
+/// released first (Windows blocks folder removal otherwise).
+struct NewWorldCleanup {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl NewWorldCleanup {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for NewWorldCleanup {
+    fn drop(&mut self) {
+        if self.armed {
+            remove_new_java_world(&self.path);
+        }
+    }
+}
+
 pub fn run_gui() {
     // Configure thread pool with 90% CPU cap to keep system responsive
     crate::floodfill_cache::configure_rayon_thread_pool(0.9);
@@ -109,11 +147,16 @@ pub fn run_gui() {
             gui_get_default_save_path,
             gui_set_save_path,
             gui_pick_save_directory,
+            gui_pick_citygml_file,
             gui_start_generation,
             gui_get_version,
-            gui_check_for_updates,
+            gui_get_update_info,
+            gui_get_platform,
+            gui_clear_tile_caches,
             gui_get_world_map_data,
-            gui_show_in_folder
+            gui_show_in_folder,
+            gui_get_3d_model_attributions,
+            gui_fetch_plateau_coverage
         ])
         .setup(|app| {
             let app_handle = app.handle();
@@ -177,6 +220,32 @@ fn gui_get_default_save_path() -> String {
     detect_minecraft_saves_directory().display().to_string()
 }
 
+#[derive(serde::Serialize)]
+struct AttributionRow {
+    label: String,
+    artist: String,
+    license: String,
+    license_url: Option<String>,
+    source_url: String,
+}
+
+#[tauri::command]
+fn gui_get_3d_model_attributions() -> Vec<AttributionRow> {
+    crate::models_3d::wikidata::PERMISSIVE_ATTRIBUTIONS
+        .iter()
+        .map(|e| AttributionRow {
+            label: e.label.clone(),
+            artist: e
+                .artist
+                .clone()
+                .unwrap_or_else(|| "Wikimedia contributor".into()),
+            license: e.license.clone(),
+            license_url: e.license_url.clone(),
+            source_url: e.url.clone(),
+        })
+        .collect()
+}
+
 /// Validates and returns a user-provided save path.
 /// Returns the path string if valid, or an error message.
 #[tauri::command]
@@ -193,6 +262,17 @@ fn gui_set_save_path(path: String) -> Result<String, String> {
 
 /// Opens a native folder-picker dialog and returns the chosen path.
 #[tauri::command]
+fn gui_pick_citygml_file() -> Result<String, String> {
+    match FileDialog::new()
+        .add_filter("CityGML", &["gml", "xml"])
+        .pick_file()
+    {
+        Some(path) => Ok(path.display().to_string()),
+        None => Ok(String::new()),
+    }
+}
+
+#[tauri::command]
 fn gui_pick_save_directory(start_path: String) -> Result<String, String> {
     let start = PathBuf::from(&start_path);
     let mut dialog = FileDialog::new();
@@ -208,7 +288,7 @@ fn gui_pick_save_directory(start_path: String) -> Result<String, String> {
 /// Creates a new Java Edition world in the given base save directory.
 /// Called when the user clicks "Create World".
 #[tauri::command]
-fn gui_create_world(save_path: String, custom_name: Option<String>) -> Result<String, i32> {
+fn gui_create_world(save_path: String) -> Result<String, i32> {
     let trimmed = save_path.trim();
     if trimmed.is_empty() {
         return Err(3);
@@ -217,13 +297,11 @@ fn gui_create_world(save_path: String, custom_name: Option<String>) -> Result<St
     if !base.is_dir() {
         return Err(3); // Error code 3: Failed to create new world
     }
-    create_new_world(&base, custom_name.as_deref()).map_err(|e| {
-        if e.contains("already exists") { 5 } else { 3 }
-    })
+    create_new_world(&base).map_err(|_| 3)
 }
 
-fn create_new_world(base_path: &Path, custom_name: Option<&str>) -> Result<String, String> {
-    crate::world_utils::create_new_world(base_path, custom_name)
+fn create_new_world(base_path: &Path) -> Result<String, String> {
+    crate::world_utils::create_new_world(base_path)
 }
 
 /// Adds localized area name to the world name in level.dat
@@ -297,6 +375,7 @@ fn add_localized_world_name(world_path: PathBuf, bbox: &LLBBox) -> PathBuf {
         };
 
     let new_name = format!("{base_name}: {truncated_area_name}");
+    let mut write_succeeded = false;
 
     // Update the level.dat file with the new name
     if let Ok(level_data) = std::fs::read(&level_path) {
@@ -307,7 +386,7 @@ fn add_localized_world_name(world_path: PathBuf, bbox: &LLBBox) -> PathBuf {
                 // Update the level name in NBT data
                 if let Value::Compound(ref mut root) = nbt_data {
                     if let Some(Value::Compound(ref mut data)) = root.get_mut("Data") {
-                        data.insert("LevelName".to_string(), Value::String(new_name));
+                        data.insert("LevelName".to_string(), Value::String(new_name.clone()));
 
                         // Save the updated NBT data
                         if let Ok(serialized_data) = fastnbt::to_bytes(&nbt_data) {
@@ -317,13 +396,18 @@ fn add_localized_world_name(world_path: PathBuf, bbox: &LLBBox) -> PathBuf {
                             );
                             if encoder.write_all(&serialized_data).is_ok() {
                                 if let Ok(compressed_data) = encoder.finish() {
-                                    if let Err(e) = std::fs::write(&level_path, compressed_data) {
-                                        eprintln!("Failed to update level.dat with area name: {e}");
-                                        #[cfg(feature = "gui")]
-                                        send_log(
-                                            LogLevel::Warning,
-                                            "Failed to update level.dat with area name",
-                                        );
+                                    match std::fs::write(&level_path, compressed_data) {
+                                        Ok(_) => write_succeeded = true,
+                                        Err(e) => {
+                                            eprintln!(
+                                                "Failed to update level.dat with area name: {e}"
+                                            );
+                                            #[cfg(feature = "gui")]
+                                            send_log(
+                                                LogLevel::Warning,
+                                                "Failed to update level.dat with area name",
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -332,6 +416,10 @@ fn add_localized_world_name(world_path: PathBuf, bbox: &LLBBox) -> PathBuf {
                 }
             }
         }
+    }
+
+    if write_succeeded {
+        progress::emit_world_name_update(&new_name);
     }
 
     // Return the original path since we didn't change the directory name
@@ -561,12 +649,72 @@ fn gui_get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Latest release info from the GitHub Releases API + a comparison to the running version.
 #[tauri::command]
-fn gui_check_for_updates() -> Result<bool, String> {
-    match version_check::check_for_updates() {
-        Ok(is_newer) => Ok(is_newer),
-        Err(e) => Err(format!("Error checking for updates: {e}")),
+fn gui_get_update_info() -> Result<version_check::UpdateInfo, String> {
+    version_check::check_for_updates().map_err(|e| format!("Update check failed: {e}"))
+}
+
+/// Compile-time target platform: "windows" / "macos" / "linux" / "unknown".
+#[tauri::command]
+fn gui_get_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unknown"
     }
+}
+
+/// Wipe both the elevation-tile and ESA-land-cover on-disk caches, so
+/// subsequent generations re-download from the upstream providers. This
+/// is what the "Clean tile cache" button in the GUI's Application
+/// settings panel calls into.
+///
+/// Returns a single human-readable status line on success (the JS side
+/// surfaces it as a toast-style notification), and an `Err` only when
+/// one or more files couldn't be deleted — that case is rare (usually
+/// a file still locked by a live generation run) but worth making
+/// visible so the user knows the wipe was partial.
+///
+/// Both cache roots themselves are left on disk; only their *contents*
+/// are removed, so the next elevation/land-cover fetch doesn't have to
+/// recreate the directory tree.
+#[tauri::command]
+fn gui_clear_tile_caches() -> Result<String, String> {
+    use crate::elevation::cache::clear_all_cached_tiles;
+    use crate::land_cover::clear_land_cover_cache;
+    use crate::models_3d::clear_model_caches;
+
+    let combined = clear_all_cached_tiles()
+        .combined(clear_land_cover_cache())
+        .combined(clear_model_caches());
+    let megabytes = combined.bytes_freed as f64 / (1024.0 * 1024.0);
+
+    if combined.errors > 0 {
+        return Err(format!(
+            "Cleared {} cached file{} ({:.1} MB), but {} file{} could not be removed",
+            combined.files_deleted,
+            if combined.files_deleted == 1 { "" } else { "s" },
+            megabytes,
+            combined.errors,
+            if combined.errors == 1 { "" } else { "s" },
+        ));
+    }
+
+    if combined.files_deleted == 0 {
+        return Ok("Tile cache was already empty".to_string());
+    }
+
+    Ok(format!(
+        "Cleared {} cached file{} ({:.1} MB freed)",
+        combined.files_deleted,
+        if combined.files_deleted == 1 { "" } else { "s" },
+        megabytes,
+    ))
 }
 
 /// Returns the world map image data as base64 and geo bounds for overlay display.
@@ -708,13 +856,18 @@ fn gui_start_generation(
     roof_enabled: bool,
     fillground_enabled: bool,
     land_cover_enabled: bool, // renamed from city_boundaries_enabled
-    satellite_colors: bool,
-    gsi_enabled: bool,
-    plateau_enabled: bool,
+    use_3d_enabled: bool,
+    disable_height_limit: bool,
+    aws_only_elevation: bool,
+    bake_lighting_enabled: bool,
     is_new_world: bool,
     spawn_point: Option<(f64, f64)>,
     telemetry_consent: bool,
     world_format: String,
+    rotation_angle: f64,
+    gsi_enabled: bool,
+    plateau_enabled: bool,
+    plateau_lod2_path: Option<String>,
 ) -> Result<(), String> {
     use progress::emit_gui_error;
     use LLBBox;
@@ -728,46 +881,52 @@ fn gui_start_generation(
     // For new Java worlds, set the spawn point in level.dat
     // Only update player position for Java worlds - Bedrock worlds don't have a pre-existing
     // level.dat to modify (the spawn point will be set when the .mcworld is created)
-    if is_new_world && world_format != "bedrock" {
-        let llbbox = match LLBBox::from_str(&bbox_text) {
-            Ok(bbox) => bbox,
-            Err(e) => {
-                let error_msg = format!("Failed to parse bounding box: {e}");
-                eprintln!("{error_msg}");
-                emit_gui_error(&error_msg);
-                return Err(error_msg);
-            }
-        };
+    if is_new_world && world_format != "bedrock" && !world_format.starts_with("luanti") {
+        let prep_result: Result<(), String> = (|| -> Result<(), String> {
+            let llbbox = LLBBox::from_str(&bbox_text)
+                .map_err(|e| format!("Failed to parse bounding box: {e}"))?;
 
-        let (transformer, xzbbox) = match CoordTransformer::llbbox_to_xzbbox(&llbbox, world_scale) {
-            Ok(result) => result,
-            Err(e) => {
-                let error_msg = format!("Failed to create coordinate transformer: {e}");
-                eprintln!("{error_msg}");
-                emit_gui_error(&error_msg);
-                return Err(error_msg);
-            }
-        };
+            let (transformer, xzbbox) = CoordTransformer::llbbox_to_xzbbox(&llbbox, world_scale)
+                .map_err(|e| format!("Failed to create coordinate transformer: {e}"))?;
 
-        let (spawn_x, spawn_z) = if let Some(coords) = spawn_point {
-            // User selected a spawn point - verify it's within bounds and convert to XZ
-            let llpoint = LLPoint::new(coords.0, coords.1)
-                .map_err(|e| format!("Failed to parse spawn point: {e}"))?;
+            let (spawn_x, spawn_z) = if let Some(coords) = spawn_point {
+                let llpoint = LLPoint::new(coords.0, coords.1)
+                    .map_err(|e| format!("Failed to parse spawn point: {e}"))?;
 
-            if llbbox.contains(&llpoint) {
-                let xzpoint = transformer.transform_point(llpoint);
-                (xzpoint.x, xzpoint.z)
+                if llbbox.contains(&llpoint) {
+                    let xzpoint = transformer.transform_point(llpoint);
+                    (xzpoint.x, xzpoint.z)
+                } else {
+                    calculate_default_spawn(&xzbbox)
+                }
             } else {
-                // Spawn point outside bounds, use default
                 calculate_default_spawn(&xzbbox)
-            }
-        } else {
-            // No user-selected spawn point - use default at X=1, Z=1 relative to world origin
-            calculate_default_spawn(&xzbbox)
-        };
+            };
 
-        set_player_spawn_in_level_dat(&selected_world, spawn_x, spawn_z)
-            .map_err(|e| format!("Failed to set spawn point: {e}"))?;
+            let (spawn_x, spawn_z) = map_transformation::rotate::rotate_xz_point(
+                spawn_x,
+                spawn_z,
+                rotation_angle.clamp(-90.0, 90.0),
+                &xzbbox,
+            );
+
+            set_player_spawn_in_level_dat(&selected_world, spawn_x, spawn_z)
+                .map_err(|e| format!("Failed to set spawn point: {e}"))?;
+
+            if disable_height_limit {
+                crate::world_utils::install_tall_datapack(std::path::Path::new(&selected_world))
+                    .map_err(|e| format!("Failed to install tall-world datapack: {e}"))?;
+            }
+
+            Ok(())
+        })();
+
+        if let Err(error_msg) = prep_result {
+            eprintln!("{error_msg}");
+            emit_gui_error(&error_msg);
+            remove_new_java_world(&PathBuf::from(&selected_world));
+            return Err(error_msg);
+        }
     }
 
     tauri::async_runtime::spawn(async move {
@@ -775,6 +934,13 @@ fn gui_start_generation(
             let world_path = PathBuf::from(&selected_world);
 
             // Determine world format from UI selection first (needed for session lock decision)
+
+            let luanti_game = if world_format.starts_with("luanti") {
+                Some(crate::luanti_block_map::LuantiGame::Mineclonia)
+            } else {
+                None
+            };
+
             let world_format = if world_format == "bedrock" {
                 WorldFormat::BedrockMcWorld
             } else if world_format.starts_with("luanti") {
@@ -782,6 +948,16 @@ fn gui_start_generation(
             } else {
                 WorldFormat::JavaAnvil
             };
+
+            // Arm cleanup for freshly created Java worlds. Declared before the
+            // SessionLock so the lock's file handle is released first on drop
+            // (Windows needs that to remove the parent folder).
+            let mut cleanup_guard: Option<NewWorldCleanup> =
+                if is_new_world && world_format == WorldFormat::JavaAnvil {
+                    Some(NewWorldCleanup::new(world_path.clone()))
+                } else {
+                    None
+                };
 
             // Check available disk space before starting generation (minimum 3GB required)
             const MIN_DISK_SPACE_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
@@ -849,60 +1025,62 @@ fn gui_start_generation(
                     let output_dir = crate::world_utils::get_bedrock_output_directory();
                     let (output_path, lvl_name) =
                         crate::world_utils::build_bedrock_output(&bbox, output_dir);
+                    progress::emit_world_name_update(&lvl_name);
                     (output_path, Some(lvl_name))
                 }
                 WorldFormat::LuantiWorld => {
-                    let worlds_dir = dirs::data_dir().unwrap_or_default().join("Minetest").join("worlds");
-                    let mut counter = 10u32;
+                    let worlds_dir = crate::world_utils::get_luanti_worlds_directory();
+                    let _ = std::fs::create_dir_all(&worlds_dir);
+                    let mut counter = 1;
                     let world_name = loop {
-                        let candidate = format!("Arnis Luanti World {}", counter);
-                        if !worlds_dir.join(&candidate).exists() { break candidate; }
+                        let candidate = format!("Arnis Luanti World {counter}");
+                        if !worlds_dir.join(&candidate).exists() {
+                            break candidate;
+                        }
                         counter += 1;
                     };
-                    (worlds_dir.join(&world_name), None)
+                    let luanti_path = worlds_dir.join(&world_name);
+                    println!(
+                        "Creating Luanti world at: {}",
+                        luanti_path.display().to_string().bright_white().bold()
+                    );
+                    (luanti_path, Some(world_name))
                 }
             };
 
             // Calculate MC spawn coordinates from lat/lng if spawn point was provided
             // Otherwise, default to X=1, Z=1 (relative to xzbbox min coordinates)
-            let mc_spawn_point: Option<(i32, i32)> = if let Some((lat, lng)) = spawn_point {
-                if let Ok(llpoint) = LLPoint::new(lat, lng) {
-                    if let Ok((transformer, _)) =
-                        CoordTransformer::llbbox_to_xzbbox(&bbox, world_scale)
-                    {
+            let mc_spawn_point: Option<(i32, i32)> = if let Ok((transformer, pre_rot_bbox)) =
+                CoordTransformer::llbbox_to_xzbbox(&bbox, world_scale)
+            {
+                let (sx, sz) = if let Some((lat, lng)) = spawn_point {
+                    if let Ok(llpoint) = LLPoint::new(lat, lng) {
                         let xzpoint = transformer.transform_point(llpoint);
-                        Some((xzpoint.x, xzpoint.z))
+                        (xzpoint.x, xzpoint.z)
                     } else {
-                        None
+                        calculate_default_spawn(&pre_rot_bbox)
                     }
                 } else {
-                    None
-                }
+                    calculate_default_spawn(&pre_rot_bbox)
+                };
+                Some(map_transformation::rotate::rotate_xz_point(
+                    sx,
+                    sz,
+                    rotation_angle.clamp(-90.0, 90.0),
+                    &pre_rot_bbox,
+                ))
             } else {
-                // Default spawn point: X=1, Z=1 relative to world origin
-                if let Ok((_, xzbbox)) = CoordTransformer::llbbox_to_xzbbox(&bbox, world_scale) {
-                    Some(calculate_default_spawn(&xzbbox))
-                } else {
-                    None
-                }
+                None
             };
 
             // Create generation options
-            // Compute coordinate transformation parameters for world_mapping.json
-            let (coord_transformer, _) =
-                crate::coordinate_system::transformation::CoordTransformer::llbbox_to_xzbbox(&bbox, world_scale)
-                    .unwrap_or_else(|e| {
-                        eprintln!("Failed to create coordinate transformer: {e}");
-                        std::process::exit(1);
-                    });
-
             let generation_options = GenerationOptions {
                 path: generation_path.clone(),
                 format: world_format,
                 level_name,
                 spawn_point: mc_spawn_point,
-                scale: world_scale,
-                jp_export: Some(crate::jp_export::JpExportOptions::from_transformer(&coord_transformer)),
+                luanti_game,
+                ground_level,
             };
 
             // Create an Args instance with the chosen bounding box
@@ -912,31 +1090,91 @@ fn gui_start_generation(
                 file: None,
                 save_json_file: None,
                 path: Some(if world_format == WorldFormat::JavaAnvil {
-                    generation_path
+                    generation_path.clone()
                 } else {
                     world_path
                 }),
                 bedrock: world_format == WorldFormat::BedrockMcWorld,
                 luanti: world_format == WorldFormat::LuantiWorld,
-                gsi_only: gsi_enabled && plateau_enabled,
                 downloader: "requests".to_string(),
                 scale: world_scale,
                 ground_level,
                 terrain: terrain_enabled,
-                satellite: satellite_colors,
-                gsi: gsi_enabled,
-                gsi_3d: None, // GSI 3D requires external GML file — CLI only (--gsi-3d)
-                plateau: plateau_enabled,
-                plateau_lod2: None, // LOD2 requires a local CityGML file — CLI only (--plateau-lod2)
                 interior: interior_enabled,
                 roof: roof_enabled,
                 fillground: fillground_enabled,
                 land_cover: land_cover_enabled,
+                use_3d: use_3d_enabled,
                 debug: false,
                 timeout: Some(std::time::Duration::from_secs(40)),
                 spawn_lat: None,
                 spawn_lng: None,
+                rotation: rotation_angle.clamp(-90.0, 90.0),
+                disable_height_limit,
+                aws_only_elevation,
+                benchmark: false,
+                bake_lighting: bake_lighting_enabled,
+                gsi: gsi_enabled,
+                plateau: plateau_enabled,
             };
+
+            // If GSI or PLATEAU enabled, delegate to arnis-jp.exe
+            if gsi_enabled || plateau_enabled {
+                let exe_path = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("arnis-jp.exe")))
+                    .unwrap_or_else(|| std::path::PathBuf::from("arnis-jp.exe"));
+                let mut cmd = std::process::Command::new(&exe_path);
+                cmd.arg("--bbox").arg(&bbox_text);
+                match world_format {
+                    WorldFormat::BedrockMcWorld => {
+                        cmd.arg("--bedrock");
+                    }
+                    WorldFormat::LuantiWorld => {
+                        let luanti_worlds = dirs::data_dir()
+                            .unwrap_or_default()
+                            .join("Minetest")
+                            .join("worlds");
+                        cmd.arg("--output-dir").arg(&luanti_worlds).arg("--luanti");
+                    }
+                    WorldFormat::JavaAnvil => {
+                        cmd.arg("--output-dir").arg(&generation_path);
+                    }
+                }
+                if gsi_enabled {
+                    cmd.arg("--gsi");
+                }
+                if plateau_enabled {
+                    cmd.arg("--plateau");
+                }
+                if let Some(ref lod2_path) = plateau_lod2_path {
+                    if !lod2_path.is_empty() {
+                        cmd.arg("--plateau-lod2").arg(lod2_path);
+                    }
+                }
+                match cmd.status() {
+                    Ok(status) if status.success() => {
+                        if let Some(g) = cleanup_guard.as_mut() {
+                            g.disarm();
+                        }
+                        emit_gui_progress_update(100.0, "Done! World generation completed.");
+                        println!("{}", "Done! World generation completed.");
+                    }
+                    Ok(_) => {
+                        let error_msg = "arnis-jp exited with error".to_string();
+                        eprintln!("{error_msg}");
+                        emit_gui_error(&error_msg);
+                        return Err(error_msg);
+                    }
+                    Err(e) => {
+                        let error_msg = format!("arnis-jp launch failed: {e}");
+                        eprintln!("{error_msg}");
+                        emit_gui_error(&error_msg);
+                        return Err(error_msg);
+                    }
+                }
+                return Ok(());
+            }
 
             // If skip_osm_objects is true (terrain-only mode), skip fetching and processing OSM data
             if skip_osm_objects {
@@ -949,18 +1187,6 @@ fn gui_start_generation(
                     CoordTransformer::llbbox_to_xzbbox(&args.bbox, args.scale)
                         .map_err(|e| format!("Failed to create coordinate transformer: {}", e))?;
 
-                let mut height_resolver = crate::building_height::HeightResolver::new(
-                    coord_transformer.min_lat(),
-                    coord_transformer.min_lng(),
-                    coord_transformer.len_lat(),
-                    coord_transformer.len_lng(),
-                    coord_transformer.scale_factor_x(),
-                    coord_transformer.scale_factor_z(),
-                );
-                // Register Japan-specific height providers (GSI-3D, PLATEAU)
-                crate::jp_data_sources::add_jp_height_providers(&args, &mut height_resolver);
-
-                let jp_ctx = crate::jp_export::JpExportContext::new();
                 let _ = data_processing::generate_world_with_options(
                     parsed_elements,
                     xzbbox.clone(),
@@ -968,9 +1194,11 @@ fn gui_start_generation(
                     ground,
                     &args,
                     generation_options.clone(),
-                    height_resolver,
-                    Some(jp_ctx),
+                    osm_parser::OutlineSuppression::new(),
                 );
+                if let Some(g) = cleanup_guard.as_mut() {
+                    g.disarm();
+                }
                 // Explicitly release session lock before showing Done message
                 // so Minecraft can open the world immediately
                 drop(_session_lock);
@@ -991,12 +1219,23 @@ fn gui_start_generation(
 
             // Run data fetch and world generation (standard mode: objects + terrain, or objects only)
             match retrieve_data::fetch_data_from_overpass(args.bbox, args.debug, "requests", None) {
-                Ok(mut raw_data) => {
-                    // Merge GSI building data if enabled
-                    crate::jp_data_sources::merge_gsi_buildings_if_enabled(&args, &mut raw_data);
-
-                    let (mut parsed_elements, mut xzbbox) =
+                Ok(raw_data) => {
+                    let (mut parsed_elements, mut xzbbox, outline_suppression) =
                         osm_parser::parse_osm_data(raw_data, args.bbox, args.scale, args.debug);
+
+                    // Fetch supplementary building data from Overture Maps
+                    {
+                        let overture_elements =
+                            overture::fetch_overture_buildings(&args.bbox, args.scale, args.debug);
+                        if !overture_elements.is_empty() {
+                            let unique_overture = overture::deduplicate_against_osm(
+                                overture_elements,
+                                &parsed_elements,
+                            );
+                            parsed_elements.extend(unique_overture);
+                        }
+                    }
+
                     parsed_elements.sort_by(|el1, el2| {
                         let (el1_priority, el2_priority) =
                             (osm_parser::get_priority(el1), osm_parser::get_priority(el2));
@@ -1010,14 +1249,11 @@ fn gui_start_generation(
                         }
                     });
 
-                    // Apply satellite colors if enabled
-                    crate::jp_data_sources::apply_satellite_colors_if_enabled(
-                        &args,
-                        &mut parsed_elements,
-                        &xzbbox,
-                    );
-
                     let mut ground = ground::generate_ground_data(&args);
+
+                    // OSM water override first, then bridge repair.
+                    ground.apply_osm_water_override(&parsed_elements, &xzbbox);
+                    ground.apply_bridge_land_cover_repair(&parsed_elements, &xzbbox, args.scale);
 
                     // Transform map (parsed_elements). Operations are defined in a json file
                     map_transformation::transform_map(
@@ -1026,18 +1262,17 @@ fn gui_start_generation(
                         &mut ground,
                     );
 
-                    let mut height_resolver = crate::building_height::HeightResolver::new(
-                        coord_transformer.min_lat(),
-                        coord_transformer.min_lng(),
-                        coord_transformer.len_lat(),
-                        coord_transformer.len_lng(),
-                        coord_transformer.scale_factor_x(),
-                        coord_transformer.scale_factor_z(),
-                    );
-                    // Register Japan-specific height providers (GSI-3D, PLATEAU)
-                    crate::jp_data_sources::add_jp_height_providers(&args, &mut height_resolver);
+                    // Apply rotation if specified
+                    if rotation_angle.abs() > f64::EPSILON {
+                        map_transformation::rotate::rotate_world(
+                            rotation_angle.clamp(-90.0, 90.0),
+                            &mut parsed_elements,
+                            &mut xzbbox,
+                            &mut ground,
+                        )
+                        .map_err(|e| format!("Rotation failed: {e}"))?;
+                    }
 
-                    let jp_ctx = crate::jp_export::JpExportContext::new();
                     let _ = data_processing::generate_world_with_options(
                         parsed_elements,
                         xzbbox.clone(),
@@ -1045,9 +1280,11 @@ fn gui_start_generation(
                         ground,
                         &args,
                         generation_options.clone(),
-                        height_resolver,
-                        Some(jp_ctx),
+                        outline_suppression,
                     );
+                    if let Some(g) = cleanup_guard.as_mut() {
+                        g.disarm();
+                    }
                     // Explicitly release session lock before showing Done message
                     // so Minecraft can open the world immediately
                     drop(_session_lock);
@@ -1067,7 +1304,8 @@ fn gui_start_generation(
                 }
                 Err(e) => {
                     emit_gui_error(&e.to_string());
-                    // Session lock will be automatically released when _session_lock goes out of scope
+                    // cleanup_guard removes the new world, and SessionLock releases
+                    // its file handle first via reverse drop order.
                     Err(e.to_string())
                 }
             }
@@ -1082,4 +1320,244 @@ fn gui_start_generation(
     });
 
     Ok(())
+}
+
+// ============================================================
+// PLATEAU coverage - Rust-side HTTP fetch (bypasses CORS)
+// ============================================================
+
+#[derive(serde::Serialize, Clone)]
+struct PlateauFeature {
+    geometry: serde_json::Value,
+    title: String,
+    lod: u8,
+}
+
+#[derive(serde::Serialize)]
+struct PlateauCoverageResult {
+    lod1: Vec<PlateauFeature>,
+    lod2: Vec<PlateauFeature>,
+    source: String,
+    debug: String,
+}
+
+fn plateau_bbox_feature(
+    title: &str,
+    lod: u8,
+    min_lat: f64,
+    min_lon: f64,
+    max_lat: f64,
+    max_lon: f64,
+) -> PlateauFeature {
+    PlateauFeature {
+        title: title.to_string(),
+        lod,
+        geometry: serde_json::json!({
+            "type": "Polygon",
+            "coordinates": [[
+                [min_lon, min_lat],
+                [max_lon, min_lat],
+                [max_lon, max_lat],
+                [min_lon, max_lat],
+                [min_lon, min_lat]
+            ]]
+        }),
+    }
+}
+
+fn plateau_static_fallback() -> Vec<PlateauFeature> {
+    vec![
+        // --- LOD2 cities ---
+        plateau_bbox_feature("東京都特別区部", 2, 35.53, 139.58, 35.82, 139.92),
+        plateau_bbox_feature("横浜市", 2, 35.24, 139.47, 35.60, 139.83),
+        plateau_bbox_feature("大阪市", 2, 34.58, 135.45, 34.73, 135.62),
+        plateau_bbox_feature("名古屋市", 2, 35.05, 136.78, 35.29, 137.07),
+        plateau_bbox_feature("福岡市", 2, 33.53, 130.31, 33.72, 130.55),
+        plateau_bbox_feature("北九州市", 2, 33.77, 130.73, 33.96, 130.98),
+        plateau_bbox_feature("京都市", 2, 34.89, 135.64, 35.21, 135.90),
+        plateau_bbox_feature("神戸市", 2, 34.62, 135.09, 34.86, 135.32),
+        plateau_bbox_feature("川崎市", 2, 35.48, 139.67, 35.65, 139.83),
+        plateau_bbox_feature("さいたま市", 2, 35.80, 139.59, 36.04, 139.73),
+        plateau_bbox_feature("千葉市", 2, 35.49, 139.99, 35.72, 140.24),
+        plateau_bbox_feature("仙台市", 2, 38.16, 140.72, 38.44, 141.00),
+        plateau_bbox_feature("広島市", 2, 34.27, 132.25, 34.57, 132.68),
+        plateau_bbox_feature("札幌市", 2, 42.93, 141.02, 43.21, 141.48),
+        plateau_bbox_feature("浜松市", 2, 34.58, 137.49, 35.07, 138.25),
+        plateau_bbox_feature("静岡市", 2, 34.80, 138.27, 35.35, 138.80),
+        plateau_bbox_feature("堺市", 2, 34.45, 135.39, 34.60, 135.57),
+        plateau_bbox_feature("熊本市", 2, 32.67, 130.60, 32.92, 130.90),
+        plateau_bbox_feature("相模原市", 2, 35.45, 139.25, 35.70, 139.55),
+        plateau_bbox_feature("新潟市", 2, 37.72, 138.85, 38.08, 139.36),
+        plateau_bbox_feature("岡山市", 2, 34.52, 133.82, 34.80, 134.09),
+        plateau_bbox_feature("那覇市", 2, 26.17, 127.64, 26.27, 127.73),
+        plateau_bbox_feature("高松市", 2, 34.27, 134.00, 34.42, 134.19),
+        // --- LOD1 only cities ---
+        plateau_bbox_feature("宇都宮市", 1, 36.50, 139.75, 36.68, 140.00),
+        plateau_bbox_feature("前橋市", 1, 36.29, 139.01, 36.46, 139.22),
+        plateau_bbox_feature("金沢市", 1, 36.51, 136.60, 36.68, 136.77),
+        plateau_bbox_feature("長野市", 1, 36.58, 138.11, 36.77, 138.30),
+        plateau_bbox_feature("松山市", 1, 33.76, 132.63, 33.92, 132.85),
+        plateau_bbox_feature("長崎市", 1, 32.67, 129.74, 32.84, 130.05),
+        plateau_bbox_feature("鹿児島市", 1, 31.53, 130.43, 31.72, 130.65),
+        plateau_bbox_feature("富山市", 1, 36.63, 137.15, 36.77, 137.29),
+        plateau_bbox_feature("盛岡市", 1, 39.68, 141.11, 39.75, 141.21),
+        plateau_bbox_feature("青森市", 1, 40.76, 140.64, 40.91, 140.83),
+        plateau_bbox_feature("秋田市", 1, 39.69, 140.09, 39.82, 140.22),
+        plateau_bbox_feature("高知市", 1, 33.49, 133.43, 33.64, 133.61),
+        plateau_bbox_feature("大分市", 1, 33.19, 131.54, 33.30, 131.72),
+        plateau_bbox_feature("奈良市", 1, 34.61, 135.77, 34.73, 135.88),
+        plateau_bbox_feature("和歌山市", 1, 34.18, 135.12, 34.29, 135.23),
+        plateau_bbox_feature("甲府市", 1, 35.62, 138.53, 35.71, 138.65),
+    ]
+}
+
+fn fetch_plateau_coverage_sync() -> PlateauCoverageResult {
+    fn make_static(debug: String) -> PlateauCoverageResult {
+        let fallback = plateau_static_fallback();
+        PlateauCoverageResult {
+            lod1: fallback.iter().filter(|f| f.lod == 1).cloned().collect(),
+            lod2: fallback.iter().filter(|f| f.lod == 2).cloned().collect(),
+            source: "static".to_string(),
+            debug,
+        }
+    }
+
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent("ArnisPLATEAU/2.8.0")
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("PLATEAU: HTTP client build failed: {e}");
+            return make_static(format!("client build error: {e}"));
+        }
+    };
+
+    // --- Try PLATEAU Re:Earth catalog API (primary) ---
+    let url = "https://api.plateau.reearth.io/datacatalog/v2/datasets?type=bldg";
+    eprintln!("PLATEAU: Fetching {url}");
+
+    let body = match client.get(url).send().and_then(|r| r.text()) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("PLATEAU: request failed: {e}");
+            return make_static(format!("request error: {e}"));
+        }
+    };
+
+    let snippet: String = body.chars().take(800).collect();
+    eprintln!("PLATEAU: response snippet: {snippet}");
+
+    let json: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("PLATEAU: JSON parse error: {e}");
+            return make_static(format!("json error: {e}. snippet: {snippet}"));
+        }
+    };
+
+    // The response is either {"datasets":[...]} or a direct array [...]
+    let datasets: Vec<serde_json::Value> = {
+        if let Some(arr) = json["datasets"].as_array() {
+            arr.clone()
+        } else if let Some(arr) = json.as_array() {
+            arr.clone()
+        } else {
+            eprintln!("PLATEAU: unexpected JSON shape, keys: {:?}",
+                json.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()));
+            return make_static(format!(
+                "unexpected json shape. snippet: {snippet}"
+            ));
+        }
+    };
+
+    eprintln!("PLATEAU: {} datasets found", datasets.len());
+
+    let mut lod1: Vec<PlateauFeature> = Vec::new();
+    let mut lod2: Vec<PlateauFeature> = Vec::new();
+
+    for ds in &datasets {
+        // bbox is [min_lon, min_lat, max_lon, max_lat] (GeoJSON order)
+        let bbox = ds["bbox"].as_array().cloned();
+        let bbox = match bbox {
+            Some(b) if b.len() >= 4 => b,
+            _ => continue,
+        };
+        let (min_lon, min_lat, max_lon, max_lat) = (
+            bbox[0].as_f64().unwrap_or(0.0),
+            bbox[1].as_f64().unwrap_or(0.0),
+            bbox[2].as_f64().unwrap_or(0.0),
+            bbox[3].as_f64().unwrap_or(0.0),
+        );
+        // Skip zero/invalid coordinates
+        if (max_lon - min_lon).abs() < 1e-6 || (max_lat - min_lat).abs() < 1e-6 {
+            continue;
+        }
+
+        let title = ds["city"].as_str()
+            .or_else(|| ds["cityName"].as_str())
+            .or_else(|| ds["name"].as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Determine available LODs from "lods" array or "items"
+        let lod_nums: Vec<u64> = ds["lods"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_u64()).collect())
+            .unwrap_or_default();
+
+        let item_lods: Vec<u64> = ds["items"].as_array()
+            .map(|items| {
+                items.iter()
+                    .filter_map(|item| {
+                        item["lod"].as_u64().or_else(|| {
+                            let name = item["name"].as_str().unwrap_or("").to_uppercase();
+                            if name.contains("LOD2") { Some(2) }
+                            else if name.contains("LOD1") { Some(1) }
+                            else { None }
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let combined: Vec<u64> = lod_nums.iter().chain(item_lods.iter()).copied().collect();
+        // If no lod info at all, assume at least LOD1 exists
+        let has_lod1 = combined.is_empty() || combined.contains(&1);
+        let has_lod2 = combined.contains(&2);
+
+        if has_lod1 {
+            lod1.push(plateau_bbox_feature(&title, 1, min_lat, min_lon, max_lat, max_lon));
+        }
+        if has_lod2 {
+            lod2.push(plateau_bbox_feature(&title, 2, min_lat, min_lon, max_lat, max_lon));
+        }
+    }
+
+    eprintln!("PLATEAU: parsed {} LOD1, {} LOD2 features", lod1.len(), lod2.len());
+
+    if lod1.is_empty() && lod2.is_empty() {
+        return make_static(format!(
+            "re:earth returned {} datasets but 0 valid bbox entries. snippet: {snippet}",
+            datasets.len()
+        ));
+    }
+
+    PlateauCoverageResult {
+        lod1,
+        lod2,
+        source: "reearth".to_string(),
+        debug: format!(
+            "re:earth ok. {} datasets total. snippet: {}",
+            datasets.len(),
+            snippet.chars().take(300).collect::<String>()
+        ),
+    }
+}
+
+#[tauri::command]
+async fn gui_fetch_plateau_coverage() -> Result<PlateauCoverageResult, String> {
+    tokio::task::spawn_blocking(fetch_plateau_coverage_sync)
+        .await
+        .map_err(|e| format!("PLATEAU fetch task error: {e}"))
 }

@@ -334,6 +334,27 @@ pub fn generate_world_with_options(
         jp_ctx.save(&output_path, &llbbox, options.scale, jp_opts, args.ground_level);
     }
 
+    // Apply PLATEAU LOD2 roof shapes if a CityGML file was provided.
+    if let Some(ref lod2_path) = args.plateau_lod2 {
+        use crate::coordinate_system::transformation::CoordTransformer;
+        println!("{} Applying PLATEAU LOD2 roof shapes...", "[LOD2]".bold());
+        match CoordTransformer::llbbox_to_xzbbox(&llbbox, options.scale) {
+            Ok((transformer, _)) => {
+                match crate::plateau_lod2::apply_to_editor(
+                    std::path::Path::new(lod2_path),
+                    &mut editor,
+                    &transformer,
+                    args.ground_level,
+                    options.scale,
+                ) {
+                    Ok(n) => println!("{} Placed {} LOD2 roof blocks.", "[LOD2]".bold(), n),
+                    Err(e) => eprintln!("Warning: LOD2 processing failed: {}", e),
+                }
+            }
+            Err(e) => eprintln!("Warning: Could not create transformer for LOD2: {}", e),
+        }
+    }
+
     // Save world
     if let Err(e) = editor.save() {
         return Err(e.to_string());

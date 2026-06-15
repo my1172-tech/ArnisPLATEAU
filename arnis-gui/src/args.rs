@@ -27,8 +27,9 @@ pub struct Args {
     /// Generate a Bedrock Edition world (.mcworld) instead of Java Edition
     #[arg(long)]
     pub bedrock: bool,
-    /// Generate a Luanti/Minetest world instead of Java Edition
-    #[arg(long, default_value_t = false)]
+
+    /// Generate a Luanti/Minetest world (map.sqlite) instead of Java Edition
+    #[arg(long)]
     pub luanti: bool,
 
     /// Downloader method (requests/curl/wget) (optional)
@@ -46,36 +47,6 @@ pub struct Args {
     /// Enable terrain (optional)
     #[arg(long)]
     pub terrain: bool,
-
-    /// Enable satellite-based building color extraction (optional)
-    /// Downloads satellite tiles for the bbox and determines building wall colors
-    /// by sampling the satellite image at each building's footprint.
-    #[arg(long)]
-    pub satellite: bool,
-
-    /// Enable GSI (国土地理院) building data for Japan (optional)
-    /// Downloads building polygons from GSI vector tiles and merges with OSM data.
-    #[arg(long, default_value_t = false)]
-    pub gsi: bool,
-
-    /// Path to a GSI 3D GML file for accurate building heights (optional)
-    /// Uses maxElv - grElv from 電子国土基本図3次元データ.
-    #[arg(long = "gsi-3d", value_name = "FILE")]
-    pub gsi_3d: Option<String>,
-
-    /// Fetch building heights from PLATEAU 3D Tiles (optional, Japan only)
-    /// Automatically downloads measuredHeight for cities covered by PLATEAU.
-    #[arg(long, default_value_t = false)]
-    pub plateau: bool,
-
-    /// Path to a PLATEAU LOD2 CityGML file for detailed roof shape generation (optional).
-    /// Parses bldg:RoofSurface polygons and voxelizes them as roof blocks.
-    /// Download CityGML LOD2 data from: https://www.geospatial.jp/ckan/dataset/plateau
-    #[arg(long = "plateau-lod2", value_name = "FILE")]
-    pub plateau_lod2: Option<String>,
-    /// Use GSI data only, skip OSM data fetching
-    #[arg(long, default_value_t = false)]
-    pub gsi_only: bool,
 
     /// Enable interior generation (optional)
     #[arg(long, default_value_t = true, action = ArgAction::Set, num_args = 0..=1, default_missing_value = "true")]
@@ -96,6 +67,10 @@ pub struct Args {
     #[arg(long = "land-cover", alias = "city-boundaries", default_value_t = true, action = ArgAction::Set, num_args = 0..=1, default_missing_value = "true")]
     pub land_cover: bool,
 
+    /// Disable fetching 3D models from external sources (3DMR + Wikimedia).
+    #[arg(long = "no-3d", default_value_t = true, action = ArgAction::SetFalse)]
+    pub use_3d: bool,
+
     /// Enable debug mode (optional)
     #[arg(long)]
     pub debug: bool,
@@ -111,13 +86,45 @@ pub struct Args {
     /// Spawn point longitude (optional, must be within bbox)
     #[arg(long, allow_hyphen_values = true)]
     pub spawn_lng: Option<f64>,
+
+    /// Clockwise rotation angle in degrees (optional, range: -90 to 90)
+    #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+    pub rotation: f64,
+
+    /// Extend build height via a bundled pack (Java 1.21.4+: Y=-2032..2031;
+    /// Bedrock 1.21.40+: Y=-512..512). Both are experimental.
+    #[arg(long, default_value_t = false)]
+    pub disable_height_limit: bool,
+
+    /// Skip the regional high-resolution elevation providers  and only use
+    /// AWS Terrain Tiles for faster generation.
+    #[arg(long, default_value_t = false)]
+    pub aws_only_elevation: bool,
+
+    /// Print generation-only timing to stderr (excludes data fetching)
+    #[arg(long, hide = true)]
+    pub benchmark: bool,
+
+    /// Bake per-chunk lighting so distant chunks render lit in LOD mods
+    /// (Voxy/Chunky) without visiting them. Slower; off by default.
+    #[arg(long, default_value_t = false)]
+    pub bake_lighting: bool,
+    /// Enable GSI building data for Japan
+    #[arg(long, default_value_t = false)]
+    pub gsi: bool,
+    /// Fetch building heights from PLATEAU 3D Tiles (Japan only)
+    #[arg(long, default_value_t = false)]
+    pub plateau: bool,
 }
 
 /// Validates CLI arguments after parsing.
-/// For Java Edition: `--path` is required and must point to an existing directory
-/// where a new world will be created automatically.
+/// For Java Edition: `--path` is required. If the directory doesn't exist, it will be created.
 /// For Bedrock Edition (`--bedrock`): `--path` is optional (defaults to Desktop output).
 pub fn validate_args(args: &Args) -> Result<(), String> {
+    if args.bedrock && args.luanti {
+        return Err("Cannot use --bedrock and --luanti together.".to_string());
+    }
+
     if args.bedrock {
         // Bedrock: path is optional; if provided, it must be an existing directory
         if let Some(ref path) = args.path {
@@ -128,8 +135,19 @@ pub fn validate_args(args: &Args) -> Result<(), String> {
                 return Err(format!("Path is not a directory: {}", path.display()));
             }
         }
+    } else if args.luanti {
+        // Luanti: path optional, defaults to OS Luanti worlds dir
+        if let Some(ref path) = args.path {
+            if !path.exists() {
+                return Err(format!("Path does not exist: {}", path.display()));
+            }
+            if !path.is_dir() {
+                return Err(format!("Path is not a directory: {}", path.display()));
+            }
+        }
     } else {
-        // Java: path is required and must be an existing directory
+        // Java: path is required. If it exists, it must be a directory.
+        // If it doesn't exist, create_new_world will create it.
         match &args.path {
             None => {
                 return Err(
@@ -138,12 +156,13 @@ pub fn validate_args(args: &Args) -> Result<(), String> {
                 );
             }
             Some(ref path) => {
-                if !path.exists() {
-                    return Err(format!("Path does not exist: {}", path.display()));
+                if path.exists() && !path.is_dir() {
+                    return Err(format!(
+                        "Path exists but is not a directory: {}",
+                        path.display()
+                    ));
                 }
-                if !path.is_dir() {
-                    return Err(format!("Path is not a directory: {}", path.display()));
-                }
+                // If path doesn't exist, that's OK - create_new_world will create it
             }
         }
     }
@@ -168,6 +187,11 @@ pub fn validate_args(args: &Args) -> Result<(), String> {
             }
         }
         _ => {}
+    }
+
+    // Validate rotation angle range (also rejects NaN and infinity)
+    if !args.rotation.is_finite() || args.rotation < -90.0 || args.rotation > 90.0 {
+        return Err("Rotation angle must be between -90 and 90 degrees.".to_string());
     }
 
     Ok(())
@@ -206,6 +230,8 @@ mod tests {
         assert!(!args.debug);
         assert!(!args.terrain);
         assert!(!args.bedrock);
+        assert!(!args.disable_height_limit);
+        assert!(!args.bake_lighting);
         // interior, roof, land_cover default to true
         assert!(args.interior);
         assert!(args.roof);
@@ -273,6 +299,29 @@ mod tests {
     }
 
     #[test]
+    fn test_disable_height_limit_flag() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let tmp_path = tmpdir.path().to_str().unwrap();
+
+        // Default is false
+        let cmd = ["arnis", "--output-dir", tmp_path, "--bbox", "1,2,3,4"];
+        let args = Args::parse_from(cmd.iter());
+        assert!(!args.disable_height_limit);
+
+        // Flag enables it
+        let cmd = [
+            "arnis",
+            "--output-dir",
+            tmp_path,
+            "--bbox",
+            "1,2,3,4",
+            "--disable-height-limit",
+        ];
+        let args = Args::parse_from(cmd.iter());
+        assert!(args.disable_height_limit);
+    }
+
+    #[test]
     fn test_java_requires_path() {
         let cmd = ["arnis", "--bbox", "1,2,3,4"];
         let args = Args::parse_from(cmd.iter());
@@ -282,18 +331,33 @@ mod tests {
     }
 
     #[test]
-    fn test_java_path_must_exist() {
+    fn test_java_nonexistent_path_is_ok() {
+        // Java: nonexistent paths are OK - create_new_world will create them
+        let tmp = tempfile::tempdir().unwrap();
+        let nonexistent = tmp.path().join("does_not_exist");
         let cmd = [
             "arnis",
             "--output-dir",
-            "/nonexistent/path",
+            nonexistent.to_str().unwrap(),
             "--bbox",
             "1,2,3,4",
         ];
         let args = Args::parse_from(cmd.iter());
         let result = validate_args(&args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_java_path_exists_but_is_file_fails() {
+        // Java: if path exists but is a file, fail
+        let tmpfile = tempfile::NamedTempFile::new().unwrap();
+        let tmp_path = tmpfile.path().to_str().unwrap();
+
+        let cmd = ["arnis", "--output-dir", tmp_path, "--bbox", "1,2,3,4"];
+        let args = Args::parse_from(cmd.iter());
+        let result = validate_args(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("does not exist"));
+        assert!(result.unwrap_err().contains("not a directory"));
     }
 
     #[test]

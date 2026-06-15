@@ -29,6 +29,8 @@ mod osm_parser;
 #[cfg(feature = "gui")]
 mod progress;
 mod retrieve_data;
+mod luanti_block_map;
+mod plateau_lod2;
 mod satellite_colors;
 #[cfg(feature = "gui")]
 mod telemetry;
@@ -120,6 +122,8 @@ fn run_cli() {
     // Determine world format and output path
     let world_format = if args.bedrock {
         world_editor::WorldFormat::BedrockMcWorld
+    } else if args.luanti {
+        world_editor::WorldFormat::LuantiWorld
     } else {
         world_editor::WorldFormat::JavaAnvil
     };
@@ -133,6 +137,23 @@ fn run_cli() {
             .unwrap_or_else(world_utils::get_bedrock_output_directory);
         let (output_path, lvl_name) = world_utils::build_bedrock_output(&args.bbox, output_dir);
         (output_path, Some(lvl_name))
+    } else if args.luanti {
+        // Luanti: create world in Minetest worlds directory
+        let worlds_dir = args.path.clone().unwrap_or_else(|| {
+            dirs::data_dir().unwrap_or_default().join("Minetest").join("worlds")
+        });
+        let mut counter = 10u32;
+        let world_name = loop {
+            let candidate = format!("Arnis Luanti World {}", counter);
+            if !worlds_dir.join(&candidate).exists() {
+                break candidate;
+            }
+            counter += 1;
+        };
+        let world_path = worlds_dir.join(&world_name);
+        std::fs::create_dir_all(&world_path).expect("Failed to create Luanti world dir");
+        println!("Creating Luanti world at: {}", world_path.display());
+        (world_path, None)
     } else {
         // Java: create a new world in the provided output directory
         let base_dir = args.path.clone().unwrap();
@@ -151,16 +172,21 @@ fn run_cli() {
     };
 
     // Fetch data
-    let mut raw_data = match &args.file {
-        Some(file) => retrieve_data::fetch_data_from_file(file),
-        None => retrieve_data::fetch_data_from_overpass(
-            args.bbox,
-            args.debug,
-            args.downloader.as_str(),
-            args.save_json_file.as_deref(),
-        ),
-    }
-    .expect("Failed to fetch data");
+    let mut raw_data = if args.gsi_only {
+        // Skip OSM, use empty data
+        crate::osm_parser::OsmData::from_elements(vec![])
+    } else {
+        match &args.file {
+            Some(file) => retrieve_data::fetch_data_from_file(file),
+            None => retrieve_data::fetch_data_from_overpass(
+                args.bbox,
+                args.debug,
+                args.downloader.as_str(),
+                args.save_json_file.as_deref(),
+            ),
+        }
+        .expect("Failed to fetch data")
+    };
 
     // Merge GSI building data if --gsi flag is set
     jp_data_sources::merge_gsi_buildings_if_enabled(&args, &mut raw_data);

@@ -11,6 +11,7 @@
 
 mod common;
 mod java;
+mod luanti;
 
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
@@ -91,6 +92,8 @@ pub enum WorldFormat {
     JavaAnvil,
     /// Bedrock Edition .mcworld format
     BedrockMcWorld,
+    /// Luanti/Minetest world format
+    LuantiWorld,
 }
 
 /// Metadata saved with the world
@@ -766,6 +769,7 @@ impl<'a> WorldEditor<'a> {
             match self.format {
                 WorldFormat::JavaAnvil => "Java Edition (Anvil)",
                 WorldFormat::BedrockMcWorld => "Bedrock Edition (.mcworld)",
+                WorldFormat::LuantiWorld => "Luanti/Minetest",
             }
         );
 
@@ -791,6 +795,11 @@ impl<'a> WorldEditor<'a> {
                 }
             }
             WorldFormat::BedrockMcWorld => self.save_bedrock(),
+            WorldFormat::LuantiWorld => {
+                if let Err(e) = luanti::save_luanti_world(&self.world, &self.world_dir, &self.xzbbox, &self.llbbox, crate::luanti_block_map::LuantiGame::Mineclonia, None, None, -62) {
+                    eprintln!("Failed to save Luanti world: {}", e);
+                }
+            }
         }
 
         Ok(())

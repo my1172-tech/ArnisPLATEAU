@@ -21,6 +21,8 @@ bedrock = ["bedrockrs_level", "bedrockrs_shared", "nbtx", "zip", "byteorder", "v
 tauri-build = {version = "2", optional = true}
 
 [dependencies]
+rusqlite = { version = "0.33", features = ["bundled"] }
+zstd = "0.13"
 base64 = "0.22.1"
 byteorder = { version = "1.5", optional = true }
 clap = { version = "4.5.60", features = ["derive", "env"] }

@@ -943,6 +943,46 @@ fn should_skip_underground_building(element: &ProcessedWay) -> bool {
     false
 }
 
+/// Returns true if the element represents a construction site, demolished
+/// structure, or ruins that should not be rendered as a building.
+///
+/// Matches OSM tagging conventions:
+/// - `construction=*` / `building=construction` / `landuse=construction`
+/// - `building:construction=*`
+/// - `demolished:building=*` / `was:building=*`
+/// - `ruins=yes` / `historic=ruins`
+#[inline]
+fn should_skip_construction_element(tags: &HashMap<String, String>) -> bool {
+    // Direct construction tag on the feature itself
+    if tags.contains_key("construction") {
+        return true;
+    }
+    // building=construction (primary tagging for buildings under construction)
+    if tags.get("building").map(|v| v.as_str()) == Some("construction") {
+        return true;
+    }
+    // landuse=construction (land actively under construction)
+    if tags.get("landuse").map(|v| v.as_str()) == Some("construction") {
+        return true;
+    }
+    // building:construction=* (alternative tagging scheme)
+    if tags.contains_key("building:construction") {
+        return true;
+    }
+    // Demolished buildings (demolished:building=* or was:building=*)
+    if tags.keys().any(|k| k.starts_with("demolished:") || k.starts_with("was:")) {
+        return true;
+    }
+    // Ruins
+    if tags.get("ruins").map(|v| v.as_str()) == Some("yes") {
+        return true;
+    }
+    if tags.get("historic").map(|v| v.as_str()) == Some("ruins") {
+        return true;
+    }
+    false
+}
+
 /// Calculates the starting Y offset based on terrain and min_level
 fn calculate_start_y_offset(
     editor: &WorldEditor,
@@ -2322,6 +2362,12 @@ pub fn generate_buildings(
 ) {
     // Early return for underground buildings
     if should_skip_underground_building(element) {
+        return;
+    }
+
+    // Skip construction sites, demolished structures, and ruins – these produce
+    // stray ground-level blocks with no meaningful geometry.
+    if should_skip_construction_element(&element.tags) {
         return;
     }
 
@@ -4050,6 +4096,11 @@ pub fn generate_building_from_relation(
     if relation.tags.contains_key("building:levels:underground")
         && !relation.tags.contains_key("building:levels")
     {
+        return;
+    }
+
+    // Skip construction sites, demolished structures, and ruins
+    if should_skip_construction_element(&relation.tags) {
         return;
     }
 
