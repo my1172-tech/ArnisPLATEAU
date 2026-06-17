@@ -334,18 +334,26 @@ class ArnisColorizeGUI:
 
     def _run_generation(self, bbox: dict):
         try:
+            # arnis-windows.exe の場所を特定（exeと同じフォルダ優先）
             base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             arnis_exe = find_arnis_exe(base_dir)
 
             if not os.path.exists(arnis_exe):
                 self.root.after(0, lambda: self._on_generation_error(
-                    f"arnis本体が見つかりません: {arnis_exe}"))
+                    f"arnis本体が見つかりません。\n"
+                    f"arnis-windows.exe を {base_dir} に置いてください。\n"
+                    f"（探したパス: {arnis_exe}）"))
                 return
 
-            self.output_dir = base_dir
+            # 出力ディレクトリ決定
+            if self.custom_output_enabled.get() and self.custom_output_path.get():
+                output_dir = self.custom_output_path.get()
+            else:
+                output_dir = base_dir
+            os.makedirs(output_dir, exist_ok=True)
+            self.output_dir = output_dir
 
-            launcher = ArnisLauncher()
-            # スポーン地点のbbox範囲内チェック（arnis側エラーになる前にPython側で検証）
+            # スポーン地点のbbox範囲内チェック
             spawn_lat = self.spawn_lat
             spawn_lon = self.spawn_lon
             if spawn_lat is not None and spawn_lon is not None:
@@ -357,23 +365,56 @@ class ArnisColorizeGUI:
                     ))
                     spawn_lat = None
                     spawn_lon = None
-            launcher.launch(arnis_exe, spawn_lat=spawn_lat, spawn_lon=spawn_lon)
 
-            self.root.after(0, lambda: self.lbl_gen_status.config(text="bbox確定待機中..."))
-            launcher.wait_for_bbox(timeout=600)
+            # OSM生データ保存パス（GSIマージ用）
+            osm_raw_path = os.path.join(output_dir, "osm_raw.json")
+
+            # arnis を CLI モードで起動（--bbox 等を直接渡す）
+            # Bedrock形式で生成（.mcworld と互換）
+            launcher = ArnisLauncher()
+            launcher.launch(
+                arnis_exe,
+                bbox=bbox,
+                output_dir=output_dir,
+                bedrock=True,
+                spawn_lat=spawn_lat,
+                spawn_lon=spawn_lon,
+                save_json_path=osm_raw_path,
+            )
 
             self.root.after(0, lambda: self.lbl_gen_status.config(text="ワールド生成中..."))
-            launcher.wait_for_complete(timeout=3600)
+            ok = launcher.wait_for_complete(timeout=3600)
 
-            # GSI建物データのマージ（デフォルトON）(TASK 5)
+            if not ok:
+                self.root.after(0, lambda: self._on_generation_error(
+                    "タイムアウト: 1時間以内に生成が完了しませんでした。\n"
+                    "arnis-windows.exe が正常に終了しているか確認してください。"))
+                return
+
+            # 生成されたワールドフォルダを特定
+            if launcher.world_path and os.path.isdir(launcher.world_path):
+                self.world_folder.set(launcher.world_path)
+            else:
+                # フォールバック: output_dir 内の最新サブフォルダを探す
+                try:
+                    subdirs = [
+                        d for d in os.scandir(output_dir)
+                        if d.is_dir() and d.name not in ("__pycache__", ".git")
+                    ]
+                    if subdirs:
+                        newest = max(subdirs, key=lambda d: d.stat().st_mtime)
+                        self.world_folder.set(newest.path)
+                except Exception:
+                    pass
+
+            # GSI建物データのマージ（デフォルトON）
             if self.gsi_enabled.get():
                 self.root.after(0, lambda: self.lbl_gen_status.config(text="国土地理院データを取得中..."))
                 try:
                     from gsi_merge import merge_gsi_into_osm_json
-                    osm_json_path = os.path.join(self.output_dir, "osm_raw.json")
-                    merged_path = os.path.join(self.output_dir, "osm_merged.json")
-                    if os.path.exists(osm_json_path):
-                        result = merge_gsi_into_osm_json(osm_json_path, bbox, merged_path)
+                    merged_path = os.path.join(output_dir, "osm_merged.json")
+                    if os.path.exists(osm_raw_path):
+                        result = merge_gsi_into_osm_json(osm_raw_path, bbox, merged_path)
                         self.root.after(0, lambda r=result: self.lbl_gen_status.config(
                             text=f"GSI統合完了: OSM {r['osm_buildings']}棟 + GSI {r['gsi_buildings']}棟 = 合計{r['total']}棟"
                         ))
@@ -394,13 +435,27 @@ class ArnisColorizeGUI:
                 increment_trial()
                 self._refresh_status_bar()
 
+        # mcworld が有効なら自動エクスポート
+        world = self.world_folder.get()
+        if self.mcworld_enabled.get() and world and os.path.isdir(world):
+            out_dir = self.custom_output_path.get() if self.custom_output_enabled.get() else self.output_dir
+            try:
+                mcworld_path = self.save_as_mcworld(world, out_dir)
+                self.lbl_gen_status.config(text=f"mcworld保存完了: {os.path.basename(mcworld_path)}")
+            except Exception as e:
+                self._log(f"[ERROR] mcworld作成失敗: {e}")
+
         if PRO_MODE:
             do_colorize = messagebox.askyesno("色付け確認",
                 "ワールド生成が完了しました。色付けも実行しますか？")
             if do_colorize:
                 self._run_colorize()
         else:
-            messagebox.showinfo("完了", "ワールド生成が完了しました。")
+            wf = self.world_folder.get()
+            msg = "ワールド生成が完了しました。"
+            if wf:
+                msg += f"\n\n生成先: {wf}"
+            messagebox.showinfo("完了", msg)
 
     def _on_generation_error(self, message: str):
         self.lbl_gen_status.config(text=f"エラー: {message}")

@@ -1,36 +1,69 @@
 """
 arnis_launcher.py
-arnis v2.9.0 Mosaic対応ラッパー — stdout リアルタイム監視 + dry-run見積もり
+arnis v2.9.0 CLIモードラッパー
+--bbox / --output-dir / --bedrock を渡してCLI直接起動し、stdoutを監視する。
+wait_for_bbox は不要（CLI起動なのでbbox確定待機が存在しない）。
 """
 import subprocess
 import threading
 import queue
 import os
+import sys
 import json
+
+# コンソールウィンドウを非表示にする Windows フラグ
+_CREATE_NO_WINDOW = 0x08000000
 
 
 class ArnisLauncher:
     def __init__(self):
         self.process = None
         self.log_queue = queue.Queue()
-        self.bbox_detected = threading.Event()
         self.generation_complete = threading.Event()
-        self.bbox_info = {}
+        self.world_path: str = None  # 完了ログから抽出した生成ワールドパス
 
-    def launch(self, arnis_exe: str, spawn_lat: float = None, spawn_lon: float = None):
-        args = [arnis_exe]
+    def launch(
+        self,
+        arnis_exe: str,
+        bbox: dict,
+        output_dir: str,
+        bedrock: bool = True,
+        spawn_lat: float = None,
+        spawn_lon: float = None,
+        save_json_path: str = None,
+    ):
+        """
+        arnis-windows.exe を CLI モードで起動する。
+        bbox:  {"min_lat", "min_lon", "max_lat", "max_lon"}
+        output_dir: 既存ディレクトリ（arnis がワールドフォルダをその中に作成）
+        bedrock: True → --bedrock フラグを渡す（.mcworld 互換形式）
+        save_json_path: 指定すると --save-json-file でOSM生データを保存（GSI merge用）
+        """
+        # --bbox "min_lat,min_lng,max_lat,max_lng"
+        bbox_str = (
+            f"{bbox['min_lat']},{bbox['min_lon']},"
+            f"{bbox['max_lat']},{bbox['max_lon']}"
+        )
+        args = [arnis_exe, "--bbox", bbox_str, "--output-dir", output_dir]
+        if bedrock:
+            args.append("--bedrock")
+        if save_json_path:
+            args += ["--save-json-file", save_json_path]
         if spawn_lat is not None and spawn_lon is not None:
             args += ["--spawn-lat", str(spawn_lat), "--spawn-lng", str(spawn_lon)]
 
-        self.process = subprocess.Popen(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1
-        )
+        popen_kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "bufsize": 1,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = _CREATE_NO_WINDOW
+
+        self.process = subprocess.Popen(args, **popen_kwargs)
         t = threading.Thread(target=self._read_output, daemon=True)
         t.start()
 
@@ -42,45 +75,37 @@ class ArnisLauncher:
         self.process.wait()
 
     def _parse_line(self, line: str):
-        # v2.9.0対応: bbox/範囲確定の検知パターン
-        BBOX_PATTERNS = [
-            "選択を確認しました",          # 旧日本語版
-            "bbox",                        # ログ内bbox情報
-            "Bounding box",
-            "Area selected",
-            "Starting generation",         # 生成開始=bbox確定
-        ]
+        # 完了パターン（優先順位順）
+        # - CLI Bedrock: "Done! Bedrock world saved to: /path"  (main.rs:294)
+        # - CLI Java:    "Created new world at: /path"           (main.rs:167)
+        # - GUI モード:  "Done! World generation completed."     (gui.rs:977)
+        # - 旧バージョン互換
         COMPLETE_PATTERNS = [
+            "Done! World generation completed.",
+            "Done! Bedrock world saved to:",
+            "Created new world at:",
             "Generation complete",
             "Finished writing",
             "chunks written",
             "World generation finished",
         ]
-
         line_lower = line.lower()
+        for pattern in COMPLETE_PATTERNS:
+            if pattern.lower() in line_lower:
+                # ワールドパスを抽出（Bedrock / Java CLI）
+                if "bedrock world saved to:" in line_lower:
+                    idx = line_lower.index("bedrock world saved to:") + len("bedrock world saved to:")
+                    self.world_path = line[idx:].strip()
+                elif "created new world at:" in line_lower:
+                    idx = line_lower.index("created new world at:") + len("created new world at:")
+                    self.world_path = line[idx:].strip()
+                self.generation_complete.set()
+                break
 
-        if not self.bbox_detected.is_set():
-            if any(p.lower() in line_lower for p in BBOX_PATTERNS):
-                # bbox情報をJSONから抽出試行
-                try:
-                    if "{" in line:
-                        data = json.loads(line[line.index("{"):])
-                        self.bbox_info = data
-                except Exception:
-                    pass
-                self.bbox_detected.set()
-
-        if any(p.lower() in line_lower for p in COMPLETE_PATTERNS):
-            self.generation_complete.set()
-
-    def wait_for_bbox(self, timeout=300) -> bool:
-        return self.bbox_detected.wait(timeout=timeout)
-
-    def wait_for_complete(self, timeout=3600) -> bool:
+    def wait_for_complete(self, timeout: int = 3600) -> bool:
         return self.generation_complete.wait(timeout=timeout)
 
-    def get_logs(self) -> list[str]:
-        """キューに溜まったログ行をすべて取得して返す"""
+    def get_logs(self) -> list:
         lines = []
         while not self.log_queue.empty():
             try:
@@ -96,11 +121,7 @@ class ArnisLauncher:
 
 def find_arnis_exe(base_dir: str) -> str:
     """arnis本体exeを優先順位付きで検索する（v2.9.0以降は arnis-windows.exe が正式名称）"""
-    candidates = [
-        "arnis-windows.exe",
-        "arnis-jp.exe",
-        "arnis.exe",
-    ]
+    candidates = ["arnis-windows.exe", "arnis-jp.exe", "arnis.exe"]
     for name in candidates:
         path = os.path.join(base_dir, name)
         if os.path.exists(path):
@@ -109,20 +130,18 @@ def find_arnis_exe(base_dir: str) -> str:
 
 
 def run_dry_run_estimate(buildings_json: str) -> dict:
-    """
-    buildings.jsonから建物数・推定API費用を計算する（Street View API: $7/1000回）
-    """
+    """buildings.json から建物数・推定API費用を計算する（Street View API: $7/1000回）"""
     try:
         with open(buildings_json, "r", encoding="utf-8") as f:
             buildings = json.load(f)
         count = len(buildings)
-        api_calls = int(count * 1.12)   # 道路判定含む係数
-        cost_usd = api_calls * 0.007    # $7/1000calls
+        api_calls = int(count * 1.12)
+        cost_usd = api_calls * 0.007
         return {
             "buildings": count,
             "api_calls": api_calls,
             "cost_usd": round(cost_usd, 2),
-            "free_tier": cost_usd < 200  # 月$200無料枠内か
+            "free_tier": cost_usd < 200,
         }
     except FileNotFoundError:
         return {"error": "buildings.json が見つかりません"}
