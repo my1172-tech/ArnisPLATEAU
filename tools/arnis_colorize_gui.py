@@ -2,6 +2,7 @@
 arnis_colorize_gui.py
 ArnisPLATEAU カラー適用・ワールド生成GUI — v2.9.0 Mosaic対応 / Free・Pro・ProDev 3ビルド対応
 """
+import json
 import os
 import sys
 import subprocess
@@ -104,6 +105,7 @@ class ArnisColorizeGUI:
 
         # GSI設定（デフォルトON）(TASK 4)
         self.gsi_enabled = tk.BooleanVar(value=True)
+        self.plateau_height_enabled = tk.BooleanVar(value=True)
 
         # スポーン地点
         self.spawn_lat = None
@@ -289,6 +291,15 @@ class ArnisColorizeGUI:
             fg="gray", font=("", 8)
         ).pack(anchor="w")
 
+        tk.Checkbutton(
+            frame, text="PLATEAU実測データで高さ・壁の形を補正する",
+            variable=self.plateau_height_enabled
+        ).pack(anchor="w", pady=(6, 0))
+        tk.Label(
+            frame, text="※ 屋根形状は対象外。高さと建物外形の精度のみ向上します",
+            fg="gray", font=("", 8)
+        ).pack(anchor="w")
+
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
 
     def _build_world_gen_section(self, parent):
@@ -420,6 +431,33 @@ class ArnisColorizeGUI:
                         ))
                 except Exception as e:
                     print(f"[GSI統合] エラー（スキップして続行）: {e}")
+
+            if self.plateau_height_enabled.get():
+                self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU高さデータを取得中..."))
+                try:
+                    from plateau_height_merge import build_height_corrections
+                    from world_height_writer import apply_height_corrections
+
+                    merged_path = os.path.join(self.output_dir, "osm_merged.json")
+                    source_path = merged_path if os.path.exists(merged_path) else os.path.join(self.output_dir, "osm_raw.json")
+                    metadata_path = os.path.join(self.output_dir, "metadata.json")
+
+                    if os.path.exists(source_path) and os.path.exists(metadata_path):
+                        with open(source_path, "r", encoding="utf-8") as f:
+                            osm_buildings = json.load(f).get("buildings", [])
+                        with open(metadata_path, "r", encoding="utf-8") as f:
+                            metadata = json.load(f)
+
+                        corrections = build_height_corrections(bbox, osm_buildings, metadata)
+                        if corrections:
+                            result = apply_height_corrections(self.world_folder.get(), corrections)
+                            self.root.after(0, lambda r=result: self.lbl_gen_status.config(
+                                text=f"PLATEAU高さ補正完了: {r['corrected']}棟（エラー{r.get('errors', 0)}棟）"
+                            ))
+                        else:
+                            self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU補正: 対応データなし"))
+                except Exception as e:
+                    print(f"[PLATEAU高さ補正] エラー（スキップして続行）: {e}")
 
             self.root.after(0, self._on_generation_complete)
 
