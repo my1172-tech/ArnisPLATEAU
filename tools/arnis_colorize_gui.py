@@ -11,6 +11,8 @@ import zipfile
 import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+import time
+import tempfile
 from datetime import datetime
 from desktop_path import get_desktop_path
 
@@ -57,6 +59,40 @@ COMPLETION_PATTERNS = [
 
 def is_generation_complete(line: str) -> bool:
     return any(p.lower() in line.lower() for p in COMPLETION_PATTERNS)
+
+
+def _extract_metadata_from_mcworld(mcworld_path: str) -> dict:
+    """
+    .mcworld (zip) ファイルから metadata.json を取り出して返す。
+    見つからない場合は {} を返す。
+    """
+    try:
+        with zipfile.ZipFile(mcworld_path, "r") as zf:
+            if "metadata.json" in zf.namelist():
+                with zf.open("metadata.json") as f:
+                    return json.load(f)
+    except Exception as e:
+        print(f"[PLATEAU] metadata.json取得失敗（mcworld）: {e}")
+    return {}
+
+
+def _get_metadata_from_world(world_path: str) -> dict:
+    """
+    ワールドフォルダまたは .mcworld ファイルから metadata.json を読む。
+    フォルダの場合はその中の metadata.json、.mcworld の場合は zip 内から取得する。
+    """
+    if not world_path:
+        return {}
+    if world_path.lower().endswith(".mcworld") and os.path.isfile(world_path):
+        return _extract_metadata_from_mcworld(world_path)
+    meta_path = os.path.join(world_path, "metadata.json")
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[PLATEAU] metadata.json読み込みエラー: {e}")
+    return {}
 
 
 def find_arnis_exe(base_dir: str) -> str:
@@ -383,6 +419,7 @@ class ArnisColorizeGUI:
 
             # arnis を CLI モードで起動（--bbox 等を直接渡す）
             # Bedrock形式で生成（.mcworld と互換）
+            gen_start_time = time.time()
             launcher = ArnisLauncher()
             launcher.launch(
                 arnis_exe,
@@ -403,16 +440,42 @@ class ArnisColorizeGUI:
                     "arnis-windows.exe が正常に終了しているか確認してください。"))
                 return
 
-            # 生成されたワールドフォルダを特定
-            if launcher.world_path and os.path.isdir(launcher.world_path):
-                self.world_folder.set(launcher.world_path)
-            else:
-                # フォールバック: output_dir 内の最新サブフォルダを探す
+            # 生成されたワールドを特定
+            _TILE_CACHE_KEYWORDS = ("tile-cache", "gsi_tiles", "sat_cache", "osm_cache")
+            world_is_mcworld = False
+            found_world = False
+
+            if launcher.world_path:
+                wp = launcher.world_path
+                if os.path.isdir(wp):
+                    # ケース1: ワールドフォルダとして直接取得
+                    self.world_folder.set(wp)
+                    found_world = True
+                elif os.path.isfile(wp) and wp.lower().endswith(".mcworld"):
+                    # ケース2: arnis が .mcworld ファイルを直接生成した
+                    self.world_folder.set(wp)
+                    world_is_mcworld = True
+                    found_world = True
+
+            if not found_world:
+                # フォールバック: output_dir の最新サブフォルダを探す
+                # タイルキャッシュ系フォルダを除外し、生成開始時刻以降のものを優先する
                 try:
                     subdirs = [
                         d for d in os.scandir(output_dir)
-                        if d.is_dir() and d.name not in ("__pycache__", ".git")
+                        if d.is_dir()
+                        and d.name not in ("__pycache__", ".git")
+                        and not any(kw in d.name.lower() for kw in _TILE_CACHE_KEYWORDS)
+                        and d.stat().st_mtime >= gen_start_time - 5
                     ]
+                    if not subdirs:
+                        # 時刻フィルタで候補なし → タイルキャッシュのみ除外で再試行
+                        subdirs = [
+                            d for d in os.scandir(output_dir)
+                            if d.is_dir()
+                            and d.name not in ("__pycache__", ".git")
+                            and not any(kw in d.name.lower() for kw in _TILE_CACHE_KEYWORDS)
+                        ]
                     if subdirs:
                         newest = max(subdirs, key=lambda d: d.stat().st_mtime)
                         self.world_folder.set(newest.path)
@@ -441,22 +504,46 @@ class ArnisColorizeGUI:
 
                     merged_path = os.path.join(self.output_dir, "osm_merged.json")
                     source_path = merged_path if os.path.exists(merged_path) else os.path.join(self.output_dir, "osm_raw.json")
-                    metadata_path = os.path.join(self.output_dir, "metadata.json")
 
-                    if os.path.exists(source_path) and os.path.exists(metadata_path):
+                    # metadata.json をワールドフォルダまたは .mcworld zip 内から取得
+                    world_path_for_plateau = self.world_folder.get()
+                    metadata = _get_metadata_from_world(world_path_for_plateau)
+
+                    if os.path.exists(source_path) and metadata:
                         with open(source_path, "r", encoding="utf-8") as f:
                             osm_buildings = json.load(f).get("buildings", [])
-                        with open(metadata_path, "r", encoding="utf-8") as f:
-                            metadata = json.load(f)
 
                         corrections = build_height_corrections(bbox, osm_buildings, metadata)
                         if corrections:
-                            result = apply_height_corrections(self.world_folder.get(), corrections)
+                            if world_is_mcworld:
+                                # .mcworld → 展開して補正 → 再zip で上書き
+                                tmp_dir = tempfile.mkdtemp(prefix="arnisplateau_")
+                                try:
+                                    with zipfile.ZipFile(world_path_for_plateau, "r") as zf:
+                                        zf.extractall(tmp_dir)
+                                    result = apply_height_corrections(tmp_dir, corrections)
+                                    tmp_mcworld = world_path_for_plateau + ".tmp"
+                                    with zipfile.ZipFile(tmp_mcworld, "w", zipfile.ZIP_DEFLATED) as zf:
+                                        for root_dir, dirs, files in os.walk(tmp_dir):
+                                            for fn in files:
+                                                fp = os.path.join(root_dir, fn)
+                                                zf.write(fp, os.path.relpath(fp, tmp_dir))
+                                    os.replace(tmp_mcworld, world_path_for_plateau)
+                                finally:
+                                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                            else:
+                                result = apply_height_corrections(world_path_for_plateau, corrections)
                             self.root.after(0, lambda r=result: self.lbl_gen_status.config(
                                 text=f"PLATEAU高さ補正完了: {r['corrected']}棟（エラー{r.get('errors', 0)}棟）"
                             ))
                         else:
                             self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU補正: 対応データなし"))
+                    else:
+                        self.root.after(0, lambda: self.lbl_gen_status.config(
+                            text="PLATEAU補正: metadata.jsonまたはOSMデータが見つかりません"
+                        ))
+                        print(f"[PLATEAU高さ補正] source={source_path}(exists={os.path.exists(source_path)}), "
+                              f"metadata={'あり' if metadata else 'なし'}, world={world_path_for_plateau}")
                 except Exception as e:
                     print(f"[PLATEAU高さ補正] エラー（スキップして続行）: {e}")
 
