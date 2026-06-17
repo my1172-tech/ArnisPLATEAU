@@ -17,9 +17,13 @@ class ArnisLauncher:
         self.generation_complete = threading.Event()
         self.bbox_info = {}
 
-    def launch(self, arnis_exe: str):
+    def launch(self, arnis_exe: str, spawn_lat: float = None, spawn_lon: float = None):
+        args = [arnis_exe]
+        if spawn_lat is not None and spawn_lon is not None:
+            args += ["--spawn-lat", str(spawn_lat), "--spawn-lng", str(spawn_lon)]
+
         self.process = subprocess.Popen(
-            [arnis_exe],
+            args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -27,7 +31,6 @@ class ArnisLauncher:
             errors="replace",
             bufsize=1
         )
-        # ログ読み取りスレッド
         t = threading.Thread(target=self._read_output, daemon=True)
         t.start()
 

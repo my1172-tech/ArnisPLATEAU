@@ -105,6 +105,10 @@ class ArnisColorizeGUI:
         # GSI設定（デフォルトON）(TASK 4)
         self.gsi_enabled = tk.BooleanVar(value=True)
 
+        # スポーン地点
+        self.spawn_lat = None
+        self.spawn_lon = None
+
         self._build_ui()
 
     def _build_ui(self):
@@ -185,9 +189,46 @@ class ArnisColorizeGUI:
                  fg="gray", font=("", 8)
                  ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
+        self.lbl_spawn_info = tk.Label(
+            frame,
+            text="スポーン地点: 未指定（範囲の中心が使用されます）",
+            fg="gray", font=("", 9)
+        )
+        self.lbl_spawn_info.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
     def _open_map_picker(self):
-        import webbrowser
-        webbrowser.open("https://geojson.io/")
+        if hasattr(self, 'lbl_gen_status'):
+            self.lbl_gen_status.config(text="地図ウィンドウを開いています...")
+        self.root.update()
+
+        def run_picker():
+            from map_picker import open_map_picker
+            result = open_map_picker()
+            self.root.after(0, lambda: self._on_map_picker_result(result))
+
+        threading.Thread(target=run_picker, daemon=True).start()
+
+    def _on_map_picker_result(self, result):
+        if not result or not result.get("bbox"):
+            return
+
+        bbox = result["bbox"]
+        self.bbox_min_lat.set(f"{bbox['min_lat']:.6f}")
+        self.bbox_max_lat.set(f"{bbox['max_lat']:.6f}")
+        self.bbox_min_lon.set(f"{bbox['min_lon']:.6f}")
+        self.bbox_max_lon.set(f"{bbox['max_lon']:.6f}")
+
+        spawn = result.get("spawn")
+        if spawn:
+            self.spawn_lat = spawn["lat"]
+            self.spawn_lon = spawn["lon"]
+            if hasattr(self, 'lbl_spawn_info'):
+                self.lbl_spawn_info.config(
+                    text=f"スポーン地点: {spawn['lat']:.6f}, {spawn['lon']:.6f}"
+                )
+        else:
+            self.spawn_lat = None
+            self.spawn_lon = None
 
     def _get_current_bbox(self) -> dict:
         """入力欄からbboxを取得・検証する"""
@@ -274,7 +315,19 @@ class ArnisColorizeGUI:
             self.output_dir = base_dir
 
             launcher = ArnisLauncher()
-            launcher.launch(arnis_exe)
+            # スポーン地点のbbox範囲内チェック（arnis側エラーになる前にPython側で検証）
+            spawn_lat = self.spawn_lat
+            spawn_lon = self.spawn_lon
+            if spawn_lat is not None and spawn_lon is not None:
+                if not (bbox["min_lat"] <= spawn_lat <= bbox["max_lat"] and
+                        bbox["min_lon"] <= spawn_lon <= bbox["max_lon"]):
+                    self.root.after(0, lambda: self.lbl_spawn_info.config(
+                        text="スポーン地点がbbox範囲外のため無視されます（範囲中心を使用）",
+                        fg="orange"
+                    ))
+                    spawn_lat = None
+                    spawn_lon = None
+            launcher.launch(arnis_exe, spawn_lat=spawn_lat, spawn_lon=spawn_lon)
 
             self.root.after(0, lambda: self.lbl_gen_status.config(text="bbox確定待機中..."))
             launcher.wait_for_bbox(timeout=600)
