@@ -12,6 +12,7 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from datetime import datetime
+from desktop_path import get_desktop_path
 
 # ビルド設定読み込み (TASK 3 of EXE_v3)
 try:
@@ -631,10 +632,7 @@ class ArnisColorizeGUI:
             self.custom_output_enabled.set(True)
             self.btn_browse_output.config(state="normal")
             if not self.custom_output_path.get():
-                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-                if not os.path.exists(desktop):
-                    desktop = os.path.join(os.path.expanduser("~"), "OneDrive", "デスクトップ")
-                self.custom_output_path.set(desktop)
+                self.custom_output_path.set(get_desktop_path())
 
     def _browse_world(self):
         path = filedialog.askdirectory(title="ワールドフォルダを選択")
@@ -729,7 +727,7 @@ class ArnisColorizeGUI:
 
         if self.mcworld_enabled.get():
             if not output_dir:
-                output_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+                output_dir = get_desktop_path()
             try:
                 mcworld_path = self.save_as_mcworld(world_folder, output_dir)
                 subprocess.Popen(["explorer", f'/select,"{mcworld_path}"'])

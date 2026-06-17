@@ -10,6 +10,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('tools\\_build_config.py', '.'),
+        ('tools\\desktop_path.py', '.'),
         ('tools\\license_client.py', '.'),
         ('tools\\arnis_launcher.py', '.'),
         ('tools\\block_color_map.py', '.'),
