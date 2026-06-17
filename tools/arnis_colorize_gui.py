@@ -197,13 +197,43 @@ class ArnisColorizeGUI:
         self.lbl_spawn_info.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
     def _open_map_picker(self):
+        import tempfile
+        import json as _json
+
         if hasattr(self, 'lbl_gen_status'):
             self.lbl_gen_status.config(text="地図ウィンドウを開いています...")
         self.root.update()
 
         def run_picker():
-            from map_picker import open_map_picker
-            result = open_map_picker()
+            result_file = os.path.join(tempfile.gettempdir(), "arnisplateau_map_result.json")
+            if os.path.exists(result_file):
+                os.remove(result_file)
+
+            # frozen(exe)時は自分自身を --map-picker モードで起動
+            # 開発時は sys.executable(python.exe) + map_picker.py を起動
+            if getattr(sys, 'frozen', False):
+                cmd = [sys.executable, "--map-picker"]
+            else:
+                picker_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "map_picker.py"
+                )
+                cmd = [sys.executable, picker_path]
+
+            try:
+                subprocess.run(cmd, timeout=660)
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception as e:
+                print(f"[map_picker] 起動エラー: {e}")
+
+            result = None
+            if os.path.exists(result_file):
+                try:
+                    with open(result_file, "r", encoding="utf-8") as f:
+                        result = _json.load(f)
+                except Exception:
+                    pass
+
             self.root.after(0, lambda: self._on_map_picker_result(result))
 
         threading.Thread(target=run_picker, daemon=True).start()
@@ -629,4 +659,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # frozen exe を --map-picker モードで起動した場合は地図ウィンドウのみ表示して終了
+    if "--map-picker" in sys.argv:
+        from map_picker import run_picker
+        run_picker()
+        sys.exit(0)
     main()
