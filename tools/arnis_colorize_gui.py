@@ -1,6 +1,6 @@
 """
 arnis_colorize_gui.py
-ArnisPLATEAU カラー適用GUI — v2.9.0 Mosaic対応
+ArnisPLATEAU カラー適用GUI — v2.9.0 Mosaic対応 / Free・Pro・ProDev 3ビルド対応
 """
 import os
 import subprocess
@@ -10,6 +10,29 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from datetime import datetime
+
+# ビルド設定読み込み (TASK 3)
+try:
+    from _build_config import PRO_MODE
+    try:
+        from _build_config import DEV_MODE
+    except ImportError:
+        DEV_MODE = False
+except ImportError:
+    PRO_MODE = os.environ.get("ARNISPLATEAU_PRO", "0") == "1"
+    DEV_MODE = os.environ.get("ARNISPLATEAU_DEV", "0") == "1"
+
+# Pro版のみライセンス関数をインポート
+if PRO_MODE:
+    try:
+        from license_client import (
+            is_licensed, is_trial_expired, get_trial_count, MAX_TRIAL_RUNS
+        )
+    except ImportError:
+        def is_licensed(): return False
+        def is_trial_expired(): return False
+        def get_trial_count(): return 0
+        MAX_TRIAL_RUNS = 3
 
 
 # v2.9.0以降のログパターン（既存パターンに追加）
@@ -46,7 +69,14 @@ def find_arnis_exe(base_dir: str) -> str:
 class ArnisColorizeGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("ArnisPLATEAU カラー適用ツール v2.9.0")
+
+        # ウィンドウタイトル (TASK 5-1)
+        if PRO_MODE:
+            title = "ArnisPLATEAU Pro v0.2.0" if not DEV_MODE else "ArnisPLATEAU Pro v0.2.0 [DEV]"
+        else:
+            title = "ArnisPLATEAU v0.2.0"
+        self.root.title(title)
+
         self.root.resizable(True, True)
 
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -60,44 +90,63 @@ class ArnisColorizeGUI:
         self._build_ui()
 
     def _build_ui(self):
-        # ワールドフォルダ選択
-        frame_world = tk.LabelFrame(self.root, text="ワールドフォルダ", padx=8, pady=8)
-        frame_world.pack(fill="x", padx=10, pady=5)
-
-        tk.Entry(frame_world, textvariable=self.world_folder, width=50).grid(row=0, column=0, padx=5)
-        tk.Button(
-            frame_world, text="選択...", command=self._browse_world
-        ).grid(row=0, column=1, padx=5)
-
-        # 出力設定
+        # ステータスバー (TASK 5-3)
+        self._build_status_bar(self.root)
+        # 出力設定（Free/Pro共通）
         self._build_output_section(self.root)
 
-        # 実行ボタン
-        tk.Button(
-            self.root,
-            text="カラー適用を実行",
-            command=self._run_colorize,
-            bg="#4a90d9",
-            fg="white",
-            font=("", 11, "bold"),
-            padx=16,
-            pady=6
-        ).pack(pady=10)
+        # Pro専用セクション (TASK 5-3)
+        if PRO_MODE:
+            self._build_license_section(self.root)
+            self._build_api_key_section(self.root)
+            self._build_colorize_section(self.root)
 
-        # ログ
-        frame_log = tk.LabelFrame(self.root, text="ログ", padx=8, pady=8)
-        frame_log.pack(fill="both", expand=True, padx=10, pady=5)
+        # 生成セクション（Free/Pro共通）
+        self._build_generate_section(self.root)
 
-        self.log_text = scrolledtext.ScrolledText(
-            frame_log, height=12, state="disabled", font=("Courier New", 9)
-        )
-        self.log_text.pack(fill="both", expand=True)
+    # ── ステータスバー (TASK 5-2) ────────────────────────────────────────────
+
+    def _build_status_bar(self, parent):
+        frame = tk.Frame(parent, bg="#1E3A5F", pady=4)
+        frame.pack(fill="x")
+
+        if not PRO_MODE:
+            msg = "ArnisPLATEAU Free  —  リアルな日本の街をMinecraftで再現"
+            fg = "#FFFFFF"
+            tk.Label(frame, text=msg, bg="#1E3A5F", fg=fg,
+                     font=("Arial", 10, "bold")).pack(side="left", padx=12)
+            tk.Button(frame, text="Pro版を見る",
+                      command=lambda: __import__('webbrowser').open("https://gumroad.com/"),
+                      bg="#2563AE", fg="white", font=("Arial", 9),
+                      relief="flat", padx=8).pack(side="right", padx=12)
+            return
+
+        # Pro版ステータス
+        if DEV_MODE:
+            msg, fg = "DEVモード  ライセンス認証スキップ中", "#FDE68A"
+        elif is_licensed():
+            msg, fg = "製品版  ライセンス有効", "#86EFAC"
+        elif is_trial_expired():
+            msg, fg = f"トライアル回数を使い切りました ({MAX_TRIAL_RUNS}/{MAX_TRIAL_RUNS}回)", "#FCA5A5"
+        else:
+            remaining = MAX_TRIAL_RUNS - get_trial_count()
+            msg, fg = f"トライアルモード  残り {remaining}/{MAX_TRIAL_RUNS} 回  半径300m制限", "#FDE68A"
+
+        tk.Label(frame, text=msg, bg="#1E3A5F", fg=fg,
+                 font=("Arial", 10, "bold")).pack(side="left", padx=12)
+
+        if not DEV_MODE and not is_licensed():
+            tk.Button(frame, text="ライセンスを購入",
+                      command=lambda: __import__('webbrowser').open("https://gumroad.com/"),
+                      bg="#F59E0B", fg="white", font=("Arial", 9, "bold"),
+                      relief="flat", padx=8).pack(side="right", padx=12)
+
+    # ── 出力設定（Free/Pro共通） ────────────────────────────────────────────
 
     def _build_output_section(self, parent):
         frame = tk.LabelFrame(parent, text="出力設定", padx=8, pady=8)
         frame.pack(fill="x", padx=10, pady=5)
 
-        # 保存先指定チェックボックス
         cb_custom = tk.Checkbutton(
             frame,
             text="保存先を指定する",
@@ -123,7 +172,6 @@ class ArnisColorizeGUI:
         )
         self.lbl_output_path.grid(row=0, column=2, sticky="w")
 
-        # Bedrock mcworld保存チェックボックス
         self.mcworld_enabled = tk.BooleanVar(value=False)
         cb_mcworld = tk.Checkbutton(
             frame,
@@ -141,6 +189,68 @@ class ArnisColorizeGUI:
         )
         self.lbl_mcworld_note.grid(row=2, column=0, columnspan=3, sticky="w")
 
+    # ── Pro専用セクション ────────────────────────────────────────────────────
+
+    def _build_license_section(self, parent):
+        frame = tk.LabelFrame(parent, text="ライセンス", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        self.license_key_var = tk.StringVar()
+        tk.Label(frame, text="ライセンスキー:").grid(row=0, column=0, sticky="w")
+        tk.Entry(frame, textvariable=self.license_key_var, width=36, show="*").grid(
+            row=0, column=1, padx=5)
+        tk.Button(frame, text="認証", command=self._activate_license).grid(
+            row=0, column=2, padx=5)
+
+    def _build_api_key_section(self, parent):
+        frame = tk.LabelFrame(parent, text="Google Street View APIキー", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        self.api_key_var = tk.StringVar()
+        tk.Label(frame, text="APIキー:").grid(row=0, column=0, sticky="w")
+        tk.Entry(frame, textvariable=self.api_key_var, width=50, show="*").grid(
+            row=0, column=1, padx=5)
+
+    def _build_colorize_section(self, parent):
+        frame = tk.LabelFrame(parent, text="Street Viewカラー適用（Pro）", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(frame, text="半径 (m):").grid(row=0, column=0, sticky="w")
+        self.radius_var = tk.StringVar(value="500")
+        tk.Entry(frame, textvariable=self.radius_var, width=8).grid(row=0, column=1, padx=5, sticky="w")
+
+    # ── 生成セクション（Free/Pro共通） ───────────────────────────────────────
+
+    def _build_generate_section(self, parent):
+        frame_world = tk.LabelFrame(parent, text="ワールドフォルダ", padx=8, pady=8)
+        frame_world.pack(fill="x", padx=10, pady=5)
+
+        tk.Entry(frame_world, textvariable=self.world_folder, width=50).grid(row=0, column=0, padx=5)
+        tk.Button(
+            frame_world, text="選択...", command=self._browse_world
+        ).grid(row=0, column=1, padx=5)
+
+        tk.Button(
+            parent,
+            text="カラー適用を実行",
+            command=self._run_colorize,
+            bg="#4a90d9",
+            fg="white",
+            font=("", 11, "bold"),
+            padx=16,
+            pady=6
+        ).pack(pady=10)
+
+        frame_log = tk.LabelFrame(parent, text="ログ", padx=8, pady=8)
+        frame_log.pack(fill="both", expand=True, padx=10, pady=5)
+
+        self.log_text = scrolledtext.ScrolledText(
+            frame_log, height=12, state="disabled", font=("Courier New", 9)
+        )
+        self.log_text.pack(fill="both", expand=True)
+
+    # ── コールバック ──────────────────────────────────────────────────────────
+
     def _on_custom_output_toggle(self):
         if self.custom_output_enabled.get():
             self.btn_browse_output.config(state="normal")
@@ -154,12 +264,10 @@ class ArnisColorizeGUI:
             self.custom_output_path.set(path)
 
     def _on_mcworld_toggle(self):
-        # mcworldが有効なら保存先指定を自動ONにする
         if self.mcworld_enabled.get():
             self.custom_output_enabled.set(True)
             self.btn_browse_output.config(state="normal")
             if not self.custom_output_path.get():
-                # デフォルトをデスクトップに設定
                 desktop = os.path.join(os.path.expanduser("~"), "Desktop")
                 if not os.path.exists(desktop):
                     desktop = os.path.join(os.path.expanduser("~"), "OneDrive", "デスクトップ")
@@ -169,6 +277,23 @@ class ArnisColorizeGUI:
         path = filedialog.askdirectory(title="ワールドフォルダを選択")
         if path:
             self.world_folder.set(path)
+
+    def _activate_license(self):
+        key = getattr(self, 'license_key_var', tk.StringVar()).get().strip()
+        if not key:
+            messagebox.showwarning("入力エラー", "ライセンスキーを入力してください。")
+            return
+        try:
+            from license_client import activate
+            result = activate(key)
+            if result:
+                messagebox.showinfo("認証成功", "ライセンス認証が完了しました。")
+            else:
+                messagebox.showerror("認証失敗", "ライセンスキーが無効です。")
+        except Exception as e:
+            messagebox.showerror("エラー", str(e))
+
+    # ── ログ・実行 ────────────────────────────────────────────────────────────
 
     def _log(self, message: str):
         self.log_text.config(state="normal")
@@ -215,16 +340,9 @@ class ArnisColorizeGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def save_as_mcworld(self, world_folder: str, output_dir: str) -> str:
-        """
-        BedrockワールドフォルダをMCWorldファイルとして保存する。
+    # ── mcworld保存 ───────────────────────────────────────────────────────────
 
-        Args:
-            world_folder: Bedrockワールドのフォルダパス
-            output_dir: 保存先ディレクトリ
-        Returns:
-            保存したmcworldファイルのパス
-        """
+    def save_as_mcworld(self, world_folder: str, output_dir: str) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         world_name = os.path.basename(world_folder.rstrip("/\\"))
         mcworld_name = f"{world_name}_{timestamp}.mcworld"
@@ -244,8 +362,6 @@ class ArnisColorizeGUI:
         return mcworld_path
 
     def _on_colorize_complete(self, world_folder: str):
-        """色付け完了後の処理"""
-
         output_dir = self.custom_output_path.get() if self.custom_output_enabled.get() else None
 
         if self.mcworld_enabled.get():
@@ -253,13 +369,11 @@ class ArnisColorizeGUI:
                 output_dir = os.path.join(os.path.expanduser("~"), "Desktop")
             try:
                 mcworld_path = self.save_as_mcworld(world_folder, output_dir)
-                # 保存先フォルダをエクスプローラーで開く
                 subprocess.Popen(["explorer", f'/select,"{mcworld_path}"'])
             except Exception as e:
                 self._log(f"[ERROR] mcworld作成失敗: {e}")
 
         elif output_dir and os.path.exists(output_dir):
-            # mcworldでない場合はワールドフォルダごとコピー
             dst = os.path.join(output_dir, os.path.basename(world_folder))
             try:
                 shutil.copytree(world_folder, dst, dirs_exist_ok=True)
