@@ -20,6 +20,7 @@ a = Analysis(
         ('tools\\gsi_merge.py', '.'),
         ('tools\\map_picker.py', '.'),
         ('tools\\map_picker.html', '.'),
+        ('tools\\osm_building_extractor.py', '.'),
         ('tools\\plateau_fetcher.py', '.'),
         ('tools\\plateau_height_merge.py', '.'),
         ('tools\\world_height_writer.py', '.'),

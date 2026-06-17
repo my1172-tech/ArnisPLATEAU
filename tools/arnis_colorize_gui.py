@@ -497,24 +497,27 @@ class ArnisColorizeGUI:
                     print(f"[GSI統合] エラー（スキップして続行）: {e}")
 
             if self.plateau_height_enabled.get():
-                self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU高さデータを取得中..."))
+                self._log("PLATEAU実測データを取得中...")
+                self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU実測データを取得中..."))
                 try:
                     from plateau_height_merge import build_height_corrections
                     from world_height_writer import apply_height_corrections
 
-                    merged_path = os.path.join(self.output_dir, "osm_merged.json")
-                    source_path = merged_path if os.path.exists(merged_path) else os.path.join(self.output_dir, "osm_raw.json")
+                    # osm_merged.json優先、なければ osm_raw.json
+                    plateau_merged = os.path.join(self.output_dir, "osm_merged.json")
+                    plateau_source = plateau_merged if os.path.exists(plateau_merged) else os.path.join(self.output_dir, "osm_raw.json")
 
                     # metadata.json をワールドフォルダまたは .mcworld zip 内から取得
                     world_path_for_plateau = self.world_folder.get()
                     metadata = _get_metadata_from_world(world_path_for_plateau)
 
-                    if os.path.exists(source_path) and metadata:
-                        with open(source_path, "r", encoding="utf-8") as f:
-                            osm_buildings = json.load(f).get("buildings", [])
+                    if os.path.exists(plateau_source) and metadata:
+                        with open(plateau_source, "r", encoding="utf-8") as f:
+                            osm_data = json.load(f)
 
-                        corrections = build_height_corrections(bbox, osm_buildings, metadata)
+                        corrections = build_height_corrections(bbox, osm_data, metadata)
                         if corrections:
+                            self._log(f"PLATEAU対応建物: {len(corrections)}棟を補正します")
                             if world_is_mcworld:
                                 # .mcworld → 展開して補正 → 再zip で上書き
                                 tmp_dir = tempfile.mkdtemp(prefix="arnisplateau_")
@@ -533,19 +536,22 @@ class ArnisColorizeGUI:
                                     shutil.rmtree(tmp_dir, ignore_errors=True)
                             else:
                                 result = apply_height_corrections(world_path_for_plateau, corrections)
-                            self.root.after(0, lambda r=result: self.lbl_gen_status.config(
-                                text=f"PLATEAU高さ補正完了: {r['corrected']}棟（エラー{r.get('errors', 0)}棟）"
-                            ))
+                            msg = f"PLATEAU高さ補正完了: {result['corrected']}棟（エラー{result.get('errors', 0)}棟）"
+                            self._log(msg)
+                            self.root.after(0, lambda m=msg: self.lbl_gen_status.config(text=m))
                         else:
+                            self._log("PLATEAU補正: 対応データなし（osm-PLATEAU間でマッチした建物が0件）")
                             self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU補正: 対応データなし"))
                     else:
+                        self._log(f"PLATEAU補正スキップ: source={os.path.exists(plateau_source)}, metadata={bool(metadata)}")
                         self.root.after(0, lambda: self.lbl_gen_status.config(
                             text="PLATEAU補正: metadata.jsonまたはOSMデータが見つかりません"
                         ))
-                        print(f"[PLATEAU高さ補正] source={source_path}(exists={os.path.exists(source_path)}), "
+                        print(f"[PLATEAU高さ補正] source={plateau_source}(exists={os.path.exists(plateau_source)}), "
                               f"metadata={'あり' if metadata else 'なし'}, world={world_path_for_plateau}")
                 except Exception as e:
-                    print(f"[PLATEAU高さ補正] エラー（スキップして続行）: {e}")
+                    self._log(f"[PLATEAU補正] エラー（スキップして続行）: {e}")
+                    print(f"[PLATEAU補正] エラー: {e}")
 
             self.root.after(0, self._on_generation_complete)
 

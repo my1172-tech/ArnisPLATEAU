@@ -1,10 +1,11 @@
-﻿"""
+"""
 PLATEAU高さデータと生成済みワールドの建物を対応付け、
 world_height_writer.py に渡す補正リストを構築するモジュール。
 """
 import json
 from typing import Dict, List
 from plateau_fetcher import fetch_plateau_buildings, find_building_for_footprint
+from osm_building_extractor import extract_buildings_with_polygons
 
 
 def latlon_to_mc(lat: float, lon: float, metadata: dict) -> tuple:
@@ -16,12 +17,18 @@ def latlon_to_mc(lat: float, lon: float, metadata: dict) -> tuple:
     return round(x), round(z)
 
 
-def build_height_corrections(bbox: dict, osm_buildings: List[Dict], metadata: dict) -> List[Dict]:
+def build_height_corrections(bbox: dict, osm_data: dict, metadata: dict) -> List[Dict]:
     """
-    osm_buildings（arnis/GSI生成済み建物）に対しPLATEAU高さを対応付け、
-    world_height_writer.apply_height_corrections に渡す形式のリストを返す。
+    osm_data（osm_raw.json または osm_merged.json の生データ）からPLATEAU高さ補正情報を構築する。
+    OSM raw形式（elements配列）とGSI統合済み形式（buildings配列）の両方に対応する。
     元の建物ポリゴン（壁の形）はそのまま座標変換するだけで、形は変更しない。
     """
+    osm_buildings = extract_buildings_with_polygons(osm_data)
+
+    if not osm_buildings:
+        print("[plateau_height_merge] OSM建物データの抽出結果が0件のため補正をスキップします")
+        return []
+
     plateau_buildings = fetch_plateau_buildings(bbox)
     if not plateau_buildings:
         print("[plateau_height_merge] PLATEAUデータ取得失敗のため高さ補正をスキップします")
@@ -39,8 +46,6 @@ def build_height_corrections(bbox: dict, osm_buildings: List[Dict], metadata: di
         if not match:
             continue
 
-        # 元のポリゴン（壁の形）の頂点をそのままMinecraft座標に変換する。
-        # 外接矩形には変換しない（輪郭の形を保持するため）。
         polygon_mc_xz = [latlon_to_mc(p[0], p[1], metadata) for p in polygon]
 
         corrections.append({
@@ -48,4 +53,5 @@ def build_height_corrections(bbox: dict, osm_buildings: List[Dict], metadata: di
             "target_height_m": match["measured_height"],
         })
 
+    print(f"[plateau_height_merge] {len(osm_buildings)}棟のOSM建物中、{len(corrections)}棟がPLATEAUデータと対応付けられました")
     return corrections
