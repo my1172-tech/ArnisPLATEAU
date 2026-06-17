@@ -143,6 +143,7 @@ class ArnisColorizeGUI:
         # GSI設定（デフォルトON）(TASK 4)
         self.gsi_enabled = tk.BooleanVar(value=True)
         self.plateau_height_enabled = tk.BooleanVar(value=True)
+        self.plateau_footprint_mode = tk.StringVar(value="priority")
 
         # スポーン地点
         self.spawn_lat = None
@@ -326,12 +327,42 @@ class ArnisColorizeGUI:
 
         tk.Checkbutton(
             frame, text="PLATEAU実測データで高さ・壁の形を補正する",
-            variable=self.plateau_height_enabled
+            variable=self.plateau_height_enabled,
+            command=self._on_plateau_toggle
         ).pack(anchor="w", pady=(6, 0))
         tk.Label(
             frame, text="※ 屋根形状は対象外。高さと建物外形の精度のみ向上します",
             fg="gray", font=("", 8)
         ).pack(anchor="w")
+
+        # 形状重複時の処理モード選択
+        fp_frame = tk.Frame(frame)
+        fp_frame.pack(anchor="w", padx=(20, 0), pady=(4, 0))
+
+        tk.Label(fp_frame, text="形状の重複時の処理:").grid(row=0, column=0, sticky="w")
+
+        fp_modes = [
+            ("優先度判定（大きい建物を優先、推奨）", "priority"),
+            ("縮小して回避（5%縮小して再判定）",   "shrink"),
+            ("変更を見送る（元の形状を維持）",      "skip"),
+        ]
+        self._fp_mode_radios = []
+        for i, (label, value) in enumerate(fp_modes):
+            rb = tk.Radiobutton(
+                fp_frame, text=label,
+                variable=self.plateau_footprint_mode, value=value,
+            )
+            rb.grid(row=i + 1, column=0, sticky="w")
+            self._fp_mode_radios.append(rb)
+
+        tk.Label(
+            fp_frame,
+            text="複数の建物の実測データが重なった場合の優先順位です。高さの補正には影響しません。",
+            fg="gray", font=("", 8),
+        ).grid(row=len(fp_modes) + 1, column=0, sticky="w", pady=(2, 0))
+
+        self._fp_frame = fp_frame
+        self._on_plateau_toggle()  # 初期状態を反映
 
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
 
@@ -493,6 +524,9 @@ class ArnisColorizeGUI:
                     print(f"[GSI統合] エラー（スキップして続行）: {e}")
 
             if self.plateau_height_enabled.get():
+                fp_mode = self.plateau_footprint_mode.get()
+                fp_mode_label = {"priority": "優先度判定", "shrink": "縮小して回避", "skip": "変更を見送る"}.get(fp_mode, fp_mode)
+                self._log(f"形状補正モード: {fp_mode}（{fp_mode_label}）")
                 self._log("PLATEAU実測データを取得中...")
                 self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU実測データを取得中..."))
                 try:
@@ -511,7 +545,7 @@ class ArnisColorizeGUI:
                         with open(plateau_source, "r", encoding="utf-8") as f:
                             osm_data = json.load(f)
 
-                        corrections = build_height_corrections(bbox, osm_data, metadata)
+                        corrections = build_height_corrections(bbox, osm_data, metadata, footprint_mode=fp_mode)
                         if corrections:
                             self._log(f"PLATEAU対応建物: {len(corrections)}棟を補正します")
                             if world_is_mcworld:
@@ -675,13 +709,13 @@ class ArnisColorizeGUI:
     # ── 色付けセクション（Free/Pro共通・末尾） ──────────────────────────────
 
     def _build_generate_section(self, parent):
-        frame_world = tk.LabelFrame(parent, text="ワールドフォルダ（色付け対象）", padx=8, pady=8)
-        frame_world.pack(fill="x", padx=10, pady=5)
-
-        tk.Entry(frame_world, textvariable=self.world_folder, width=50).grid(row=0, column=0, padx=5)
-        tk.Button(
-            frame_world, text="選択...", command=self._browse_world
-        ).grid(row=0, column=1, padx=5)
+        if PRO_MODE:
+            frame_world = tk.LabelFrame(parent, text="ワールドフォルダ（色付け対象）", padx=8, pady=8)
+            frame_world.pack(fill="x", padx=10, pady=5)
+            tk.Entry(frame_world, textvariable=self.world_folder, width=50).grid(row=0, column=0, padx=5)
+            tk.Button(
+                frame_world, text="選択...", command=self._browse_world
+            ).grid(row=0, column=1, padx=5)
 
         if PRO_MODE:
             tk.Button(
@@ -704,6 +738,11 @@ class ArnisColorizeGUI:
         self.log_text.pack(fill="both", expand=True)
 
     # ── コールバック ──────────────────────────────────────────────────────────
+
+    def _on_plateau_toggle(self):
+        state = "normal" if self.plateau_height_enabled.get() else "disabled"
+        for rb in getattr(self, "_fp_mode_radios", []):
+            rb.config(state=state)
 
     def _on_custom_output_toggle(self):
         if self.custom_output_enabled.get():
