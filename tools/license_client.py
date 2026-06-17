@@ -11,6 +11,7 @@ from pathlib import Path
 
 CACHE_PATH = Path(os.path.expanduser("~")) / ".arnisplateau" / "license.cache"
 MAX_TRIAL_RUNS = 3
+MAX_TRIAL_RADIUS_M = 300
 TRIAL_COUNT_PATH = Path(os.path.expanduser("~")) / ".arnisplateau" / "trial.json"
 LICENSE_SERVER = "https://arnisplateau-license.workers.dev"
 
@@ -66,6 +67,35 @@ def _increment_trial():
     TRIAL_COUNT_PATH.parent.mkdir(parents=True, exist_ok=True)
     count = get_trial_count() + 1
     TRIAL_COUNT_PATH.write_text(json.dumps({"count": count}))
+
+
+def increment_trial():
+    _increment_trial()
+
+
+def bbox_radius_m(bbox: dict) -> float:
+    """bboxの最大辺を半径(m)に換算して返す（簡易計算）"""
+    import math
+    lat_c = (bbox["min_lat"] + bbox["max_lat"]) / 2
+    dlat = abs(bbox["max_lat"] - bbox["min_lat"]) * 111000
+    dlon = abs(bbox["max_lon"] - bbox["min_lon"]) * 111000 * math.cos(math.radians(lat_c))
+    return max(dlat, dlon) / 2
+
+
+def clip_bbox_to_trial(bbox: dict) -> dict:
+    """トライアル制限半径内にbboxを縮小して返す"""
+    import math
+    lat_c = (bbox["min_lat"] + bbox["max_lat"]) / 2
+    lon_c = (bbox["min_lon"] + bbox["max_lon"]) / 2
+    r = MAX_TRIAL_RADIUS_M
+    dlat = r / 111000
+    dlon = r / (111000 * math.cos(math.radians(lat_c)))
+    return {
+        "min_lat": lat_c - dlat,
+        "max_lat": lat_c + dlat,
+        "min_lon": lon_c - dlon,
+        "max_lon": lon_c + dlon,
+    }
 
 
 def activate(license_key: str) -> bool:

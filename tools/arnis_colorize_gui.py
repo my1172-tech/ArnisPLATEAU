@@ -1,8 +1,9 @@
 """
 arnis_colorize_gui.py
-ArnisPLATEAU カラー適用GUI — v2.9.0 Mosaic対応 / Free・Pro・ProDev 3ビルド対応
+ArnisPLATEAU カラー適用・ワールド生成GUI — v2.9.0 Mosaic対応 / Free・Pro・ProDev 3ビルド対応
 """
 import os
+import sys
 import subprocess
 import threading
 import zipfile
@@ -11,7 +12,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 from datetime import datetime
 
-# ビルド設定読み込み (TASK 3)
+# ビルド設定読み込み (TASK 3 of EXE_v3)
 try:
     from _build_config import PRO_MODE
     try:
@@ -22,25 +23,33 @@ except ImportError:
     PRO_MODE = os.environ.get("ARNISPLATEAU_PRO", "0") == "1"
     DEV_MODE = os.environ.get("ARNISPLATEAU_DEV", "0") == "1"
 
+# Launcher接続 (TASK 4)
+from arnis_launcher import ArnisLauncher, find_arnis_exe as _launcher_find_arnis_exe
+
 # Pro版のみライセンス関数をインポート
 if PRO_MODE:
     try:
         from license_client import (
-            is_licensed, is_trial_expired, get_trial_count, MAX_TRIAL_RUNS
+            is_licensed, is_trial_expired, get_trial_count, MAX_TRIAL_RUNS,
+            clip_bbox_to_trial, increment_trial, bbox_radius_m, MAX_TRIAL_RADIUS_M,
         )
     except ImportError:
         def is_licensed(): return False
         def is_trial_expired(): return False
         def get_trial_count(): return 0
+        def clip_bbox_to_trial(bbox): return bbox
+        def increment_trial(): pass
+        def bbox_radius_m(bbox): return 0
         MAX_TRIAL_RUNS = 3
+        MAX_TRIAL_RADIUS_M = 300
 
 
-# v2.9.0以降のログパターン（既存パターンに追加）
+# v2.9.0以降のログパターン
 COMPLETION_PATTERNS = [
-    "Generation complete",      # 旧パターン（互換）
+    "Generation complete",
     "World generation finished",
-    "Finished writing",         # v2.9.0ストリーミング書き込み完了
-    "chunks written",           # v2.9.0チャンク並列化完了ログ
+    "Finished writing",
+    "chunks written",
 ]
 
 
@@ -63,57 +72,66 @@ def find_arnis_exe(base_dir: str) -> str:
         path = os.path.join(base_dir, name)
         if os.path.exists(path):
             return path
-    return os.path.join(base_dir, candidates[0])  # 見つからない場合は最新名を返す
+    return os.path.join(base_dir, candidates[0])
 
 
 class ArnisColorizeGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
 
-        # ウィンドウタイトル (TASK 5-1)
+        # ウィンドウタイトル
         if PRO_MODE:
             title = "ArnisPLATEAU Pro v0.2.0" if not DEV_MODE else "ArnisPLATEAU Pro v0.2.0 [DEV]"
         else:
             title = "ArnisPLATEAU v0.2.0"
         self.root.title(title)
-
         self.root.resizable(True, True)
 
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.arnis_exe = find_arnis_exe(self.base_dir)
 
+        # 出力設定変数
         self.world_folder = tk.StringVar(value="")
         self.custom_output_enabled = tk.BooleanVar(value=False)
         self.custom_output_path = tk.StringVar(value="")
         self.mcworld_enabled = tk.BooleanVar(value=False)
 
+        # bbox入力用変数 (TASK 2)
+        self.bbox_min_lat = tk.StringVar(value="")
+        self.bbox_max_lat = tk.StringVar(value="")
+        self.bbox_min_lon = tk.StringVar(value="")
+        self.bbox_max_lon = tk.StringVar(value="")
+
+        # GSI設定（デフォルトON）(TASK 4)
+        self.gsi_enabled = tk.BooleanVar(value=True)
+
         self._build_ui()
 
     def _build_ui(self):
-        # ステータスバー (TASK 5-3)
+        # TASK 5: セクション呼び出し順序
         self._build_status_bar(self.root)
-        # 出力設定（Free/Pro共通）
+        self._build_bbox_section(self.root)       # TASK 2
+        self._build_gsi_section(self.root)        # TASK 4
+        self._build_world_gen_section(self.root)  # TASK 3
         self._build_output_section(self.root)
 
-        # Pro専用セクション (TASK 5-3)
         if PRO_MODE:
             self._build_license_section(self.root)
             self._build_api_key_section(self.root)
             self._build_colorize_section(self.root)
 
-        # 生成セクション（Free/Pro共通）
-        self._build_generate_section(self.root)
+        self._build_generate_section(self.root)   # 色付けセクション（末尾固定）
 
-    # ── ステータスバー (TASK 5-2) ────────────────────────────────────────────
+    # ── ステータスバー ────────────────────────────────────────────────────────
 
     def _build_status_bar(self, parent):
         frame = tk.Frame(parent, bg="#1E3A5F", pady=4)
         frame.pack(fill="x")
 
         if not PRO_MODE:
-            msg = "ArnisPLATEAU Free  —  リアルな日本の街をMinecraftで再現"
-            fg = "#FFFFFF"
-            tk.Label(frame, text=msg, bg="#1E3A5F", fg=fg,
+            tk.Label(frame,
+                     text="ArnisPLATEAU Free  —  リアルな日本の街をMinecraftで再現",
+                     bg="#1E3A5F", fg="#FFFFFF",
                      font=("Arial", 10, "bold")).pack(side="left", padx=12)
             tk.Button(frame, text="Pro版を見る",
                       command=lambda: __import__('webbrowser').open("https://gumroad.com/"),
@@ -121,7 +139,6 @@ class ArnisColorizeGUI:
                       relief="flat", padx=8).pack(side="right", padx=12)
             return
 
-        # Pro版ステータス
         if DEV_MODE:
             msg, fg = "DEVモード  ライセンス認証スキップ中", "#FDE68A"
         elif is_licensed():
@@ -140,6 +157,176 @@ class ArnisColorizeGUI:
                       command=lambda: __import__('webbrowser').open("https://gumroad.com/"),
                       bg="#F59E0B", fg="white", font=("Arial", 9, "bold"),
                       relief="flat", padx=8).pack(side="right", padx=12)
+
+    # ── bbox入力セクション (TASK 2) ───────────────────────────────────────────
+
+    def _build_bbox_section(self, parent):
+        frame = tk.LabelFrame(parent, text="生成エリア選択", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Button(
+            frame, text="地図でエリアを選ぶ（ブラウザが開きます）",
+            command=self._open_map_picker,
+            bg="#2563AE", fg="white", relief="flat", padx=10, pady=4
+        ).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 8))
+
+        tk.Label(frame, text="最小緯度:").grid(row=1, column=0, sticky="w")
+        tk.Entry(frame, textvariable=self.bbox_min_lat, width=14).grid(row=1, column=1, padx=4)
+        tk.Label(frame, text="最大緯度:").grid(row=1, column=2, sticky="w")
+        tk.Entry(frame, textvariable=self.bbox_max_lat, width=14).grid(row=1, column=3, padx=4)
+
+        tk.Label(frame, text="最小経度:").grid(row=2, column=0, sticky="w")
+        tk.Entry(frame, textvariable=self.bbox_min_lon, width=14).grid(row=2, column=1, padx=4)
+        tk.Label(frame, text="最大経度:").grid(row=2, column=2, sticky="w")
+        tk.Entry(frame, textvariable=self.bbox_max_lon, width=14).grid(row=2, column=3, padx=4)
+
+        tk.Label(frame,
+                 text="※ bbox.dev または geojson.io で範囲を選び、表示された座標を入力してください",
+                 fg="gray", font=("", 8)
+                 ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+    def _open_map_picker(self):
+        import webbrowser
+        webbrowser.open("https://geojson.io/")
+
+    def _get_current_bbox(self) -> dict:
+        """入力欄からbboxを取得・検証する"""
+        try:
+            return {
+                "min_lat": float(self.bbox_min_lat.get()),
+                "max_lat": float(self.bbox_max_lat.get()),
+                "min_lon": float(self.bbox_min_lon.get()),
+                "max_lon": float(self.bbox_max_lon.get()),
+            }
+        except ValueError:
+            return None
+
+    # ── GSIセクション (TASK 4) ───────────────────────────────────────────────
+
+    def _build_gsi_section(self, parent):
+        frame = tk.LabelFrame(parent, text="日本向け拡張", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Checkbutton(
+            frame, text="国土地理院（GSI）建物データを使用する",
+            variable=self.gsi_enabled
+        ).pack(anchor="w")
+
+        tk.Label(
+            frame,
+            text="※ OSMだけでは少ない日本の住宅地の建物密度を国土地理院データで補います",
+            fg="gray", font=("", 8)
+        ).pack(anchor="w")
+
+    # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
+
+    def _build_world_gen_section(self, parent):
+        frame = tk.LabelFrame(parent, text="ワールド生成", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        self.btn_generate = tk.Button(
+            frame, text="ワールド生成を開始",
+            command=self._on_generate_click,
+            bg="#166534", fg="white", font=("Arial", 11, "bold"),
+            relief="flat", padx=12, pady=8
+        )
+        self.btn_generate.pack(fill="x")
+
+        self.lbl_gen_status = tk.Label(frame, text="", fg="#374151")
+        self.lbl_gen_status.pack(fill="x", pady=(6, 0))
+
+    # ── 生成処理本体 (TASK 4) ─────────────────────────────────────────────────
+
+    def _on_generate_click(self):
+        bbox = self._get_current_bbox()
+        if bbox is None:
+            messagebox.showerror("入力エラー", "緯度・経度を正しく入力してください。")
+            return
+
+        if PRO_MODE and not DEV_MODE:
+            if not is_licensed():
+                if is_trial_expired():
+                    messagebox.showerror("トライアル終了",
+                        "トライアル回数を使い切りました。ライセンスを購入してください。")
+                    return
+                if bbox_radius_m(bbox) > MAX_TRIAL_RADIUS_M:
+                    messagebox.showwarning("範囲制限",
+                        f"トライアルモードでは半径{MAX_TRIAL_RADIUS_M}m以内に制限されます。自動的に縮小します。")
+                bbox = clip_bbox_to_trial(bbox)
+
+        self.lbl_gen_status.config(text="arnis起動中...")
+        self.btn_generate.config(state="disabled")
+        self.root.update()
+
+        t = threading.Thread(target=self._run_generation, args=(bbox,), daemon=True)
+        t.start()
+
+    def _run_generation(self, bbox: dict):
+        try:
+            base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            arnis_exe = find_arnis_exe(base_dir)
+
+            if not os.path.exists(arnis_exe):
+                self.root.after(0, lambda: self._on_generation_error(
+                    f"arnis本体が見つかりません: {arnis_exe}"))
+                return
+
+            self.output_dir = base_dir
+
+            launcher = ArnisLauncher()
+            launcher.launch(arnis_exe)
+
+            self.root.after(0, lambda: self.lbl_gen_status.config(text="bbox確定待機中..."))
+            launcher.wait_for_bbox(timeout=600)
+
+            self.root.after(0, lambda: self.lbl_gen_status.config(text="ワールド生成中..."))
+            launcher.wait_for_complete(timeout=3600)
+
+            # GSI建物データのマージ（デフォルトON）(TASK 5)
+            if self.gsi_enabled.get():
+                self.root.after(0, lambda: self.lbl_gen_status.config(text="国土地理院データを取得中..."))
+                try:
+                    from gsi_merge import merge_gsi_into_osm_json
+                    osm_json_path = os.path.join(self.output_dir, "osm_raw.json")
+                    merged_path = os.path.join(self.output_dir, "osm_merged.json")
+                    if os.path.exists(osm_json_path):
+                        result = merge_gsi_into_osm_json(osm_json_path, bbox, merged_path)
+                        self.root.after(0, lambda r=result: self.lbl_gen_status.config(
+                            text=f"GSI統合完了: OSM {r['osm_buildings']}棟 + GSI {r['gsi_buildings']}棟 = 合計{r['total']}棟"
+                        ))
+                except Exception as e:
+                    print(f"[GSI統合] エラー（スキップして続行）: {e}")
+
+            self.root.after(0, self._on_generation_complete)
+
+        except Exception as e:
+            self.root.after(0, lambda: self._on_generation_error(str(e)))
+
+    def _on_generation_complete(self):
+        self.lbl_gen_status.config(text="ワールド生成完了")
+        self.btn_generate.config(state="normal")
+
+        if PRO_MODE and not DEV_MODE:
+            if not is_licensed():
+                increment_trial()
+                self._refresh_status_bar()
+
+        if PRO_MODE:
+            do_colorize = messagebox.askyesno("色付け確認",
+                "ワールド生成が完了しました。色付けも実行しますか？")
+            if do_colorize:
+                self._run_colorize()
+        else:
+            messagebox.showinfo("完了", "ワールド生成が完了しました。")
+
+    def _on_generation_error(self, message: str):
+        self.lbl_gen_status.config(text=f"エラー: {message}")
+        self.btn_generate.config(state="normal")
+        messagebox.showerror("生成エラー", message)
+
+    def _refresh_status_bar(self):
+        # ステータスバーを再構築する（既存の_build_status_barを呼び直す想定）
+        pass
 
     # ── 出力設定（Free/Pro共通） ────────────────────────────────────────────
 
@@ -219,10 +406,10 @@ class ArnisColorizeGUI:
         self.radius_var = tk.StringVar(value="500")
         tk.Entry(frame, textvariable=self.radius_var, width=8).grid(row=0, column=1, padx=5, sticky="w")
 
-    # ── 生成セクション（Free/Pro共通） ───────────────────────────────────────
+    # ── 色付けセクション（Free/Pro共通・末尾） ──────────────────────────────
 
     def _build_generate_section(self, parent):
-        frame_world = tk.LabelFrame(parent, text="ワールドフォルダ", padx=8, pady=8)
+        frame_world = tk.LabelFrame(parent, text="ワールドフォルダ（色付け対象）", padx=8, pady=8)
         frame_world.pack(fill="x", padx=10, pady=5)
 
         tk.Entry(frame_world, textvariable=self.world_folder, width=50).grid(row=0, column=0, padx=5)
@@ -293,7 +480,7 @@ class ArnisColorizeGUI:
         except Exception as e:
             messagebox.showerror("エラー", str(e))
 
-    # ── ログ・実行 ────────────────────────────────────────────────────────────
+    # ── ログ・色付け実行 ──────────────────────────────────────────────────────
 
     def _log(self, message: str):
         self.log_text.config(state="normal")

@@ -91,6 +91,20 @@ class ArnisLauncher:
             self.process.terminate()
 
 
+def find_arnis_exe(base_dir: str) -> str:
+    """arnis本体exeを優先順位付きで検索する（v2.9.0以降は arnis-windows.exe が正式名称）"""
+    candidates = [
+        "arnis-windows.exe",
+        "arnis-jp.exe",
+        "arnis.exe",
+    ]
+    for name in candidates:
+        path = os.path.join(base_dir, name)
+        if os.path.exists(path):
+            return path
+    return os.path.join(base_dir, candidates[0])
+
+
 def run_dry_run_estimate(buildings_json: str) -> dict:
     """
     buildings.jsonから建物数・推定API費用を計算する（Street View API: $7/1000回）

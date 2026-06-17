@@ -19,6 +19,8 @@ a = Analysis(
         ('tools\\colorize.py', '.'),
         ('tools\\apply_colors.py', '.'),
         ('tools\\osm_to_json.py', '.'),
+        ('tools\\gsi_fetcher.py', '.'),
+        ('tools\\gsi_merge.py', '.'),
     ],
     hiddenimports=[
         'tkinter', 'tkinter.filedialog', 'tkinter.messagebox',
@@ -26,6 +28,7 @@ a = Analysis(
         'PIL', 'PIL.Image', 'numpy',
         'json', 'zipfile', 'hashlib', 'threading', 'queue',
         'math', 'webbrowser', 'subprocess', 'base64',
+        'mapbox_vector_tile',
     ],
     hookspath=[], runtime_hooks=[],
     win_no_prefer_redirects=False, win_private_assemblies=False,
