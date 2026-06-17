@@ -32,6 +32,7 @@ a = Analysis(
         'mapbox_vector_tile', 'webview',
         'amulet',
         'requests',
+        'shapely', 'shapely.geometry',
     ],
     excludes=['sklearn', 'PIL', 'numpy'],
     hookspath=[], runtime_hooks=[],

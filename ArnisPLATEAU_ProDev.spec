@@ -37,6 +37,7 @@ a = Analysis(
         'math', 'webbrowser', 'subprocess', 'base64',
         'mapbox_vector_tile', 'webview',
         'amulet',
+        'shapely', 'shapely.geometry',
     ],
     hookspath=[], runtime_hooks=[],
     win_no_prefer_redirects=False, win_private_assemblies=False,
