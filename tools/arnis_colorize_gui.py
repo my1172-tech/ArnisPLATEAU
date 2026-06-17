@@ -173,13 +173,9 @@ class ArnisColorizeGUI:
 
         if not PRO_MODE:
             tk.Label(frame,
-                     text="ArnisPLATEAU Free  —  リアルな日本の街をMinecraftで再現",
+                     text="ArnisPLATEAU  —  リアルな日本の街をMinecraftで再現",
                      bg="#1E3A5F", fg="#FFFFFF",
                      font=("Arial", 10, "bold")).pack(side="left", padx=12)
-            tk.Button(frame, text="Pro版を見る",
-                      command=lambda: __import__('webbrowser').open("https://gumroad.com/"),
-                      bg="#2563AE", fg="white", font=("Arial", 9),
-                      relief="flat", padx=8).pack(side="right", padx=12)
             return
 
         if DEV_MODE:
@@ -687,16 +683,17 @@ class ArnisColorizeGUI:
             frame_world, text="選択...", command=self._browse_world
         ).grid(row=0, column=1, padx=5)
 
-        tk.Button(
-            parent,
-            text="カラー適用を実行",
-            command=self._run_colorize,
-            bg="#4a90d9",
-            fg="white",
-            font=("", 11, "bold"),
-            padx=16,
-            pady=6
-        ).pack(pady=10)
+        if PRO_MODE:
+            tk.Button(
+                parent,
+                text="カラー適用を実行",
+                command=self._run_colorize,
+                bg="#4a90d9",
+                fg="white",
+                font=("", 11, "bold"),
+                padx=16,
+                pady=6
+            ).pack(pady=10)
 
         frame_log = tk.LabelFrame(parent, text="ログ", padx=8, pady=8)
         frame_log.pack(fill="both", expand=True, padx=10, pady=5)
