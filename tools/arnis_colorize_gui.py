@@ -145,6 +145,9 @@ class ArnisColorizeGUI:
         self.plateau_height_enabled = tk.BooleanVar(value=True)
         self.plateau_footprint_mode = tk.StringVar(value="priority")
 
+        # 検証用基準点
+        self.calib_rows = []
+
         # スポーン地点
         self.spawn_lat = None
         self.spawn_lon = None
@@ -155,6 +158,7 @@ class ArnisColorizeGUI:
         # TASK 5: セクション呼び出し順序
         self._build_status_bar(self.root)
         self._build_bbox_section(self.root)       # TASK 2
+        self._build_calibration_section(self.root)  # 検証用基準点
         self._build_gsi_section(self.root)        # TASK 4
         self._build_world_gen_section(self.root)  # TASK 3
         self._build_output_section(self.root)
@@ -529,6 +533,9 @@ class ArnisColorizeGUI:
                 except Exception as e:
                     print(f"[GSI統合] エラー（スキップして続行）: {e}")
 
+            corrections_for_calib = None
+            metadata_for_calib = None
+
             if self.plateau_height_enabled.get():
                 fp_mode = self.plateau_footprint_mode.get()
                 fp_mode_label = {"priority": "優先度判定", "shrink": "縮小して回避", "skip": "変更を見送る"}.get(fp_mode, fp_mode)
@@ -546,12 +553,14 @@ class ArnisColorizeGUI:
                     # metadata.json をワールドフォルダまたは .mcworld zip 内から取得
                     world_path_for_plateau = self.world_folder.get()
                     metadata = _get_metadata_from_world(world_path_for_plateau)
+                    metadata_for_calib = metadata
 
                     if os.path.exists(plateau_source) and metadata:
                         with open(plateau_source, "r", encoding="utf-8") as f:
                             osm_data = json.load(f)
 
                         corrections = build_height_corrections(bbox, osm_data, metadata, footprint_mode=fp_mode)
+                        corrections_for_calib = corrections
                         if corrections:
                             self._log(f"PLATEAU対応建物: {len(corrections)}棟を補正します")
                             # 常に Java Edition フォルダに直接適用（Java world editor が region/*.mca を編集）
@@ -572,6 +581,11 @@ class ArnisColorizeGUI:
                 except Exception as e:
                     self._log(f"[PLATEAU補正] エラー（スキップして続行）: {e}")
                     print(f"[PLATEAU補正] エラー: {e}")
+
+            # キャリブレーション（PLATEAU補正直後、mcworld変換前）
+            calib_pts = self._get_calibration_points()
+            if calib_pts and corrections_for_calib is not None and metadata_for_calib:
+                self._run_calibration(corrections_for_calib, metadata_for_calib, calib_pts)
 
             # mcworld が有効なら Chunker で Java→Bedrock 変換 → ZIP（バックグラウンドで実行）
             if self.mcworld_enabled.get():
@@ -748,6 +762,113 @@ class ArnisColorizeGUI:
             frame_log, height=12, state="disabled", font=("Courier New", 9)
         )
         self.log_text.pack(fill="both", expand=True)
+
+    # ── 検証用基準点セクション ────────────────────────────────────────────────
+
+    def _build_calibration_section(self, parent):
+        _MAX = 5
+        self.calib_outer_frame = tk.LabelFrame(parent, text="検証用基準点", padx=8, pady=8)
+        self.calib_outer_frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(
+            self.calib_outer_frame,
+            text="離れた場所の建物を3か所程度指定すると、位置ズレの検出精度が上がります",
+            fg="gray", font=("", 8),
+        ).pack(anchor="w", pady=(0, 2))
+
+        self.calib_warn_lbl = tk.Label(self.calib_outer_frame, text="", fg="#dc2626", font=("", 8))
+        self.calib_warn_lbl.pack(anchor="w")
+
+        # ヘッダー行
+        hdr = tk.Frame(self.calib_outer_frame)
+        hdr.pack(fill="x", pady=(2, 0))
+        tk.Label(hdr, text="建物名",  width=16, anchor="w", font=("", 9, "bold")).grid(row=0, column=0, padx=2)
+        tk.Label(hdr, text="緯度",    width=14, anchor="w", font=("", 9, "bold")).grid(row=0, column=1, padx=2)
+        tk.Label(hdr, text="経度",    width=14, anchor="w", font=("", 9, "bold")).grid(row=0, column=2, padx=2)
+
+        # 行コンテナ
+        self.calib_rows_frame = tk.Frame(self.calib_outer_frame)
+        self.calib_rows_frame.pack(fill="x")
+
+        # 追加ボタン
+        btn_row = tk.Frame(self.calib_outer_frame)
+        btn_row.pack(anchor="w", pady=(4, 0))
+        self.btn_add_calib = tk.Button(
+            btn_row, text="+ 基準点を追加",
+            command=self._add_calibration_row, font=("", 9),
+        )
+        self.btn_add_calib.pack(side="left")
+        self.calib_limit_lbl = tk.Label(btn_row, text="", fg="gray", font=("", 8))
+        self.calib_limit_lbl.pack(side="left", padx=(6, 0))
+
+        self._on_calibration_changed()
+
+    def _add_calibration_row(self, name: str = "", lat: str = "", lon: str = ""):
+        _MAX = 5
+        if len(self.calib_rows) >= _MAX:
+            return
+        name_var = tk.StringVar(value=name)
+        lat_var  = tk.StringVar(value=lat)
+        lon_var  = tk.StringVar(value=lon)
+
+        row_frame = tk.Frame(self.calib_rows_frame)
+        row_frame.pack(fill="x", pady=1)
+
+        tk.Entry(row_frame, textvariable=name_var, width=16).grid(row=0, column=0, padx=2)
+        tk.Entry(row_frame, textvariable=lat_var,  width=14).grid(row=0, column=1, padx=2)
+        tk.Entry(row_frame, textvariable=lon_var,  width=14).grid(row=0, column=2, padx=2)
+
+        row_data = {"name": name_var, "lat": lat_var, "lon": lon_var, "frame": row_frame}
+        self.calib_rows.append(row_data)
+
+        def on_delete(rd=row_data):
+            self._remove_calibration_row(rd)
+
+        tk.Button(row_frame, text="削除", command=on_delete, font=("", 8)).grid(
+            row=0, column=3, padx=2,
+        )
+        self._on_calibration_changed()
+
+    def _remove_calibration_row(self, row_data: dict):
+        if row_data in self.calib_rows:
+            row_data["frame"].pack_forget()
+            row_data["frame"].destroy()
+            self.calib_rows.remove(row_data)
+            self._on_calibration_changed()
+
+    def _on_calibration_changed(self):
+        _MAX = 5
+        n = len(self.calib_rows)
+        if n >= _MAX:
+            self.btn_add_calib.config(state="disabled")
+            self.calib_limit_lbl.config(text=f"（上限{_MAX}件）")
+        else:
+            self.btn_add_calib.config(state="normal")
+            self.calib_limit_lbl.config(text="")
+        if n == 0:
+            self.calib_warn_lbl.config(
+                text="基準点が0件です。未登録でも生成可能ですが、キャリブレーションはスキップされます。"
+            )
+        else:
+            self.calib_warn_lbl.config(text="")
+
+    def _get_calibration_points(self) -> list:
+        """有効な基準点リストを返す（緯度経度が数値として解析できるもののみ）"""
+        result = []
+        for rd in self.calib_rows:
+            name = rd["name"].get().strip() or "基準点"
+            try:
+                lat = float(rd["lat"].get())
+                lon = float(rd["lon"].get())
+                result.append({"name": name, "lat": lat, "lon": lon})
+            except ValueError:
+                continue
+        return result
+
+    def _run_calibration(self, corrections: list, metadata: dict, calib_points: list):
+        """キャリブレーション結果をログに出力する"""
+        from calibration import run_calibration
+        run_calibration(corrections, metadata, calib_points, log_fn=self._log)
 
     # ── コールバック ──────────────────────────────────────────────────────────
 

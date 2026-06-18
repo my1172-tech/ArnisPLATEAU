@@ -17,11 +17,14 @@ FOOTPRINT_MODES = ("skip", "shrink", "priority")
 
 
 def latlon_to_mc(lat: float, lon: float, metadata: dict) -> tuple:
-    """metadata.jsonの範囲情報から緯度経度をMinecraft座標(x,z)に線形変換する"""
+    """metadata.jsonの範囲情報から緯度経度をMinecraft座標(x,z)に線形変換する。
+    arnis の座標系: 北(maxGeoLat)→minMcZ=0, 南(minGeoLat)→maxMcZ
+    Z軸は緯度と逆向き（Minecraft標準: 北=-Z, 南=+Z）のため (1-lat_ratio) で反転する。
+    """
     lat_ratio = (lat - metadata["minGeoLat"]) / (metadata["maxGeoLat"] - metadata["minGeoLat"])
     lon_ratio = (lon - metadata["minGeoLon"]) / (metadata["maxGeoLon"] - metadata["minGeoLon"])
     x = metadata["minMcX"] + lon_ratio * (metadata["maxMcX"] - metadata["minMcX"])
-    z = metadata["minMcZ"] + lat_ratio * (metadata["maxMcZ"] - metadata["minMcZ"])
+    z = metadata["minMcZ"] + (1.0 - lat_ratio) * (metadata["maxMcZ"] - metadata["minMcZ"])
     return round(x), round(z)
 
 
@@ -189,11 +192,16 @@ def build_height_corrections(
 
         polygon_mc_xz = [latlon_to_mc(p[0], p[1], metadata) for p in fp_polygon]
 
+        osm_polygon_mc_xz = None
+        if use_plateau_fp:
+            osm_polygon_mc_xz = [latlon_to_mc(p[0], p[1], metadata) for p in osm_polygon]
+
         corrections.append({
             "polygon_mc_xz": polygon_mc_xz,
             "target_height_m": height,
             "footprint_replaced": use_plateau_fp,
             "iou": round(iou, 3),
+            "osm_polygon_mc_xz": osm_polygon_mc_xz,
         })
 
     total = len(corrections)

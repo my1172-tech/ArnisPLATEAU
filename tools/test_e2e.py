@@ -21,6 +21,13 @@ BBOX = {
     "min_lat": 35.665560, "max_lat": 35.672585,
     "min_lon": 139.743453, "max_lon": 139.756280,
 }
+
+# 検証用基準点（Google Maps実測座標）
+CALIBRATION_POINTS = [
+    {"name": "大同生命霞が関ビル",    "lat": 35.670517,            "lon": 139.751560},
+    {"name": "虎ノ門ヒルズ森タワー", "lat": 35.66689741570721,    "lon": 139.749623094962},
+    {"name": "西新橋スクエア",       "lat": 35.66934286571219,    "lon": 139.75487694678765},
+]
 OUT_DIR = os.path.join(ROOT, "test_e2e_out")
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -139,6 +146,7 @@ else:
     print(f"  metadata.json: なし → PLATEAU補正はスキップ")
 
 corrections_count = 0
+corrections = []
 plateau_result = None
 if os.path.exists(plateau_source) and metadata:
     with open(plateau_source, "r", encoding="utf-8") as f:
@@ -155,6 +163,14 @@ if os.path.exists(plateau_source) and metadata:
 else:
     print(f"  [SKIP] source={os.path.exists(plateau_source)}, metadata={bool(metadata)}")
 print(f"  所要時間: {elapsed(t0)}")
+
+# ── STEP 3.5: キャリブレーション ──────────────────────────────────────────────
+if corrections and metadata:
+    print(f"\n{'='*60}")
+    print("[STEP] 3.5. 検証用基準点 キャリブレーション")
+    print(f"{'='*60}")
+    from calibration import run_calibration
+    run_calibration(corrections, metadata, CALIBRATION_POINTS)
 
 # ── STEP 4: Chunker 変換 ────────────────────────────────────────────────────
 t0 = step("4. Chunker CLI で Java → Bedrock 変換")

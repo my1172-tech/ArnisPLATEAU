@@ -17,6 +17,12 @@ import nbt.nbt as nbt_lib
 STONE = "minecraft:stone"
 AIR   = "minecraft:air"
 _AIR_NAMES = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
+_TERRAIN_BLOCKS = {
+    "minecraft:grass_block", "minecraft:dirt", "minecraft:coarse_dirt",
+    "minecraft:rooted_dirt", "minecraft:dirt_path", "minecraft:podzol",
+    "minecraft:mycelium", "minecraft:gravel", "minecraft:sand",
+    "minecraft:red_sand", "minecraft:clay", "minecraft:bedrock",
+}
 
 WORLD_MIN_Y = -64
 WORLD_MAX_Y = 319
@@ -263,10 +269,64 @@ def _find_base_y(nbt_data, bx: int, bz: int) -> int:
 
 # ── 列の高さ再構築 ────────────────────────────────────────────────────────
 
-def _rebuild_column(nbt_data, bx: int, bz: int, base_y: int, target_blocks: int) -> None:
+def _detect_wall_block(secs, bx: int, bz: int, base_y: int, scan: int = 20) -> str:
+    """base_y から上をスキャンして最初の非エア・非地形ブロック名を返す（建物壁材の推定）。
+    base_y 自体（床ブロック）を含めることで、中空建物の内部列でも正しく検出できる。
+    草・土・砂利などの地形ブロックはスキップして建物素材のみ返す。
+    """
+    for y in range(base_y, base_y + scan + 1):
+        if not (WORLD_MIN_Y <= y <= WORLD_MAX_Y):
+            break
+        s = _find_section(secs, y >> 4)
+        if s is None:
+            continue
+        blk = _get_block(s, bx, y & 15, bz)
+        if blk not in _AIR_NAMES and blk not in _TERRAIN_BLOCKS:
+            return blk
+    return STONE
+
+
+def _detect_material_from_polygon(
+    region_dir: str, polygon_mc_xz, get_cells_fn
+) -> Optional[str]:
+    """OSM polygonセルをスキャンしてarnisが使った主要建物素材を返す。
+    PLATEAU footprint置き換えの際に、PLATEAU bbox外縁部でも適切な素材を使えるよう、
+    arnis元建物の素材をあらかじめ検出する。stoneはデフォルト扱いで除外する。
+    """
+    cells = get_cells_fn(polygon_mc_xz)
+    block_counts: Dict[str, int] = {}
+    for (x, z) in cells:
+        cx, bx = divmod(x, 16)
+        cz, bz = divmod(z, 16)
+        rx, cx_l = divmod(cx, 32)
+        rz, cz_l = divmod(cz, 32)
+        region_path = os.path.join(region_dir, f"r.{rx}.{rz}.mca")
+        if not os.path.exists(region_path):
+            continue
+        try:
+            nbt_data, _ = _read_chunk(region_path, cx_l, cz_l)
+            if nbt_data is None:
+                continue
+            secs = _get_sections_tag(nbt_data)
+            if secs is None:
+                continue
+            base_y = _find_base_y(nbt_data, bx, bz)
+            blk = _detect_wall_block(secs, bx, bz, base_y)
+            if blk != STONE:
+                block_counts[blk] = block_counts.get(blk, 0) + 1
+        except Exception:
+            continue
+    return max(block_counts, key=block_counts.get) if block_counts else None
+
+
+def _rebuild_column(
+    nbt_data, bx: int, bz: int, base_y: int, target_blocks: int,
+    forced_material: Optional[str] = None,
+) -> None:
     """
     (bx, bz) 列を base_y 起点で target_blocks 高さに再構築する。
-    base_y 〜 base_y+target_blocks-1: STONE で埋める（エアのみ）
+    forced_material が指定された場合はそれを使用（OSMポリゴンから事前検出した素材）。
+    base_y 〜 base_y+target_blocks-1: 壁素材で埋める（エアのみ対象）
     base_y+target_blocks 〜 base_y+target_blocks+35: AIR に削る（非エアのみ）
     """
     secs = _get_sections_tag(nbt_data)
@@ -280,12 +340,17 @@ def _rebuild_column(nbt_data, bx: int, bz: int, base_y: int, target_blocks: int)
             secs.tags.append(s)
         return s
 
+    if forced_material is not None:
+        fill_block = forced_material
+    else:
+        fill_block = _detect_wall_block(secs, bx, bz, base_y)
+
     for y in range(base_y, base_y + target_blocks):
         if not (WORLD_MIN_Y <= y <= WORLD_MAX_Y):
             continue
         s = ensure_section(y >> 4)
         if _get_block(s, bx, y & 15, bz) in _AIR_NAMES:
-            _set_block(s, bx, y & 15, bz, STONE)
+            _set_block(s, bx, y & 15, bz, fill_block)
 
     for y in range(base_y + target_blocks, base_y + target_blocks + 35):
         if not (WORLD_MIN_Y <= y <= WORLD_MAX_Y):
@@ -315,19 +380,29 @@ def apply_corrections_java(
     if not os.path.isdir(region_dir):
         return None
 
-    # チャンク単位でタスクをグループ化（I/O 最適化）
-    chunk_tasks: Dict[Tuple, List[Tuple[int, int, int]]] = {}
+    # footprint置き換え建物の素材を事前検出（OSMポリゴン内のarnisブロックから）
+    # これにより、PLATEAU bbox外縁部（arnis未建設エリア）でも正しい素材が使われる
+    ref_materials: Dict[int, Optional[str]] = {}
+    for i, correction in enumerate(corrections):
+        if correction.get("footprint_replaced") and correction.get("osm_polygon_mc_xz"):
+            ref_materials[i] = _detect_material_from_polygon(
+                region_dir, correction["osm_polygon_mc_xz"], get_cells_fn
+            )
 
-    for correction in corrections:
+    # チャンク単位でタスクをグループ化（I/O 最適化）
+    chunk_tasks: Dict[Tuple, List[Tuple[int, int, int, Optional[str]]]] = {}
+
+    for i, correction in enumerate(corrections):
         polygon_xz = correction.get("polygon_mc_xz", [])
         t_blocks = max(1, round(correction.get("target_height_m", 1) / block_height_m))
         cells = get_cells_fn(polygon_xz)
+        forced_mat = ref_materials.get(i)
         for (x, z) in cells:
             cx, bx = divmod(x, 16)
             cz, bz = divmod(z, 16)
             rx, cx_l = divmod(cx, 32)
             rz, cz_l = divmod(cz, 32)
-            chunk_tasks.setdefault((rx, rz, cx_l, cz_l), []).append((bx, bz, t_blocks))
+            chunk_tasks.setdefault((rx, rz, cx_l, cz_l), []).append((bx, bz, t_blocks, forced_mat))
 
     print(f"[java_editor] 対象チャンク数: {len(chunk_tasks)}")
     corrected = errors = skipped = 0
@@ -343,9 +418,9 @@ def apply_corrections_java(
                 skipped += 1
                 continue
 
-            for (bx, bz, t_blocks) in tasks:
+            for (bx, bz, t_blocks, forced_mat) in tasks:
                 base_y = _find_base_y(nbt_data, bx, bz)
-                _rebuild_column(nbt_data, bx, bz, base_y, t_blocks)
+                _rebuild_column(nbt_data, bx, bz, base_y, t_blocks, forced_material=forced_mat)
 
             _write_chunk(region_path, cx_l, cz_l, nbt_data, comp or 2)
             corrected += 1
