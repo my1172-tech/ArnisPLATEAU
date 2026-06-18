@@ -29,6 +29,8 @@ a = Analysis(
         ('tools\\plateau_height_merge.py', '.'),
         ('tools\\world_height_writer.py', '.'),
         ('tools\\java_world_editor.py', '.'),
+        ('tools\\chunker_converter.py', '.'),
+        ('tools\\chunker-cli', 'chunker-cli'),
     ],
     hiddenimports=[
         'tkinter', 'tkinter.filedialog', 'tkinter.messagebox',

@@ -561,6 +561,38 @@ class ArnisColorizeGUI:
                     self._log(f"[PLATEAU補正] エラー（スキップして続行）: {e}")
                     print(f"[PLATEAU補正] エラー: {e}")
 
+            # mcworld が有効なら Chunker で Java→Bedrock 変換 → ZIP（バックグラウンドで実行）
+            if self.mcworld_enabled.get():
+                java_world = self.world_folder.get()
+                out_dir = (self.custom_output_path.get()
+                           if self.custom_output_enabled.get() else self.output_dir)
+                if java_world and os.path.isdir(java_world):
+                    try:
+                        from chunker_converter import convert_java_to_bedrock
+                        self._log("Bedrock形式に変換中（Chunker CLI）...")
+                        self.root.after(0, lambda: self.lbl_gen_status.config(
+                            text="Bedrock形式に変換中（数十秒〜数分かかります）..."))
+
+                        conv = convert_java_to_bedrock(
+                            java_world, out_dir,
+                            progress_callback=self._log,
+                        )
+                        if conv["success"]:
+                            mcworld_path = self.save_as_mcworld(conv["output_path"], out_dir)
+                            shutil.rmtree(conv["output_path"], ignore_errors=True)
+                            msg = f"mcworld保存完了: {os.path.basename(mcworld_path)}"
+                            self._log(msg)
+                            self.root.after(0, lambda m=msg: self.lbl_gen_status.config(text=m))
+                        else:
+                            self._log(f"[WARNING] Bedrock変換失敗: {conv['error']}")
+                            self._log("Java版ワールドフォルダをそのまま保存します。")
+                            self.root.after(0, lambda: self.lbl_gen_status.config(
+                                text="Bedrock変換失敗（Java版フォルダを保存済み）"))
+                    except Exception as e:
+                        self._log(f"[ERROR] Bedrock変換中に例外: {e}")
+                        self.root.after(0, lambda: self.lbl_gen_status.config(
+                            text="Bedrock変換失敗（Java版フォルダを保存済み）"))
+
             self.root.after(0, self._on_generation_complete)
 
         except Exception as e:
@@ -574,16 +606,6 @@ class ArnisColorizeGUI:
             if not is_licensed():
                 increment_trial()
                 self._refresh_status_bar()
-
-        # mcworld が有効なら自動エクスポート
-        world = self.world_folder.get()
-        if self.mcworld_enabled.get() and world and os.path.isdir(world):
-            out_dir = self.custom_output_path.get() if self.custom_output_enabled.get() else self.output_dir
-            try:
-                mcworld_path = self.save_as_mcworld(world, out_dir)
-                self.lbl_gen_status.config(text=f"mcworld保存完了: {os.path.basename(mcworld_path)}")
-            except Exception as e:
-                self._log(f"[ERROR] mcworld作成失敗: {e}")
 
         if PRO_MODE:
             do_colorize = messagebox.askyesno("色付け確認",
