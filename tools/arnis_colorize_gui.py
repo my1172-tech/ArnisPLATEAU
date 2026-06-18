@@ -445,14 +445,15 @@ class ArnisColorizeGUI:
             osm_raw_path = os.path.join(output_dir, "osm_raw.json")
 
             # arnis を CLI モードで起動（--bbox 等を直接渡す）
-            # Bedrock形式で生成（.mcworld と互換）
+            # Java Edition 形式で生成（PLATEAU/GSI補正は Java world editor で実行）
+            # mcworld 化は補正完了後に _on_generation_complete → save_as_mcworld で行う
             gen_start_time = time.time()
             launcher = ArnisLauncher()
             launcher.launch(
                 arnis_exe,
                 bbox=bbox,
                 output_dir=output_dir,
-                bedrock=True,
+                bedrock=False,
                 spawn_lat=spawn_lat,
                 spawn_lon=spawn_lon,
                 save_json_path=osm_raw_path,
@@ -467,21 +468,14 @@ class ArnisColorizeGUI:
                     "arnis-windows.exe が正常に終了しているか確認してください。"))
                 return
 
-            # 生成されたワールドを特定
+            # 生成されたワールドを特定（Java Edition: フォルダのみ）
             _TILE_CACHE_KEYWORDS = ("tile-cache", "gsi_tiles", "sat_cache", "osm_cache")
-            world_is_mcworld = False
             found_world = False
 
             if launcher.world_path:
                 wp = launcher.world_path
                 if os.path.isdir(wp):
-                    # ケース1: ワールドフォルダとして直接取得
                     self.world_folder.set(wp)
-                    found_world = True
-                elif os.path.isfile(wp) and wp.lower().endswith(".mcworld"):
-                    # ケース2: arnis が .mcworld ファイルを直接生成した
-                    self.world_folder.set(wp)
-                    world_is_mcworld = True
                     found_world = True
 
             if not found_world:
@@ -548,24 +542,8 @@ class ArnisColorizeGUI:
                         corrections = build_height_corrections(bbox, osm_data, metadata, footprint_mode=fp_mode)
                         if corrections:
                             self._log(f"PLATEAU対応建物: {len(corrections)}棟を補正します")
-                            if world_is_mcworld:
-                                # .mcworld → 展開して補正 → 再zip で上書き
-                                tmp_dir = tempfile.mkdtemp(prefix="arnisplateau_")
-                                try:
-                                    with zipfile.ZipFile(world_path_for_plateau, "r") as zf:
-                                        zf.extractall(tmp_dir)
-                                    result = apply_height_corrections(tmp_dir, corrections)
-                                    tmp_mcworld = world_path_for_plateau + ".tmp"
-                                    with zipfile.ZipFile(tmp_mcworld, "w", zipfile.ZIP_DEFLATED) as zf:
-                                        for root_dir, dirs, files in os.walk(tmp_dir):
-                                            for fn in files:
-                                                fp = os.path.join(root_dir, fn)
-                                                zf.write(fp, os.path.relpath(fp, tmp_dir))
-                                    os.replace(tmp_mcworld, world_path_for_plateau)
-                                finally:
-                                    shutil.rmtree(tmp_dir, ignore_errors=True)
-                            else:
-                                result = apply_height_corrections(world_path_for_plateau, corrections)
+                            # 常に Java Edition フォルダに直接適用（Java world editor が region/*.mca を編集）
+                            result = apply_height_corrections(world_path_for_plateau, corrections)
                             msg = f"PLATEAU高さ補正完了: {result['corrected']}棟（エラー{result.get('errors', 0)}棟）"
                             self._log(msg)
                             self.root.after(0, lambda m=msg: self.lbl_gen_status.config(text=m))
@@ -840,12 +818,17 @@ class ArnisColorizeGUI:
 
         self._log(f"mcworld作成中: {mcworld_name}")
 
+        # .ldb / .log は LevelDB ファイルで圧縮済みのため ZIP_STORED を使う
+        # その他のファイルは ZIP_DEFLATED で圧縮する
+        _STORED_EXTS = {".ldb", ".log"}
         with zipfile.ZipFile(mcworld_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(world_folder):
                 for file in files:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, world_folder)
-                    zf.write(file_path, arcname)
+                    ext = os.path.splitext(file)[1].lower()
+                    compress = zipfile.ZIP_STORED if ext in _STORED_EXTS else zipfile.ZIP_DEFLATED
+                    zf.write(file_path, arcname, compress_type=compress)
 
         size_mb = os.path.getsize(mcworld_path) / (1024 * 1024)
         self._log(f"mcworld保存完了: {mcworld_path} ({size_mb:.1f} MB)")
