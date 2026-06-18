@@ -24,6 +24,7 @@ a = Analysis(
         ('tools\\plateau_fetcher.py', '.'),
         ('tools\\plateau_height_merge.py', '.'),
         ('tools\\world_height_writer.py', '.'),
+        ('tools\\java_world_editor.py', '.'),
     ],
     hiddenimports=[
         'tkinter', 'tkinter.filedialog', 'tkinter.messagebox',
