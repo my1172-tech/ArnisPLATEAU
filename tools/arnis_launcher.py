@@ -75,29 +75,27 @@ class ArnisLauncher:
         self.process.wait()
 
     def _parse_line(self, line: str):
-        # 完了パターン（優先順位順）
-        # - CLI Bedrock: "Done! Bedrock world saved to: /path"  (main.rs:294)
-        # - CLI Java:    "Created new world at: /path"           (main.rs:167)
-        # - GUI モード:  "Done! World generation completed."     (gui.rs:977)
-        # - 旧バージョン互換
+        # ワールドパスを "Created new world at: /path" から先行抽出（起動直後に出力される）
+        line_lower = line.lower()
+        if "created new world at:" in line_lower:
+            idx = line_lower.index("created new world at:") + len("created new world at:")
+            self.world_path = line[idx:].strip()
+
+        # 完了パターン（arnis 2.9.0 実測に基づく）
+        # - CLI Java:    "[7/7] Saving world..."  ← arnis が出力する最終行（プロセス終了直前）
+        # - CLI Bedrock: "Done! Bedrock world saved to: /path"
+        # - GUI モード:  "Done! World generation completed."
         COMPLETE_PATTERNS = [
-            "Done! World generation completed.",
+            "Saving world",          # Java CLI: "[7/7] Saving world..." がプロセス終了直前の最終行
             "Done! Bedrock world saved to:",
-            "Created new world at:",
+            "Done! World generation completed.",
             "Generation complete",
-            "Finished writing",
-            "chunks written",
             "World generation finished",
         ]
-        line_lower = line.lower()
         for pattern in COMPLETE_PATTERNS:
             if pattern.lower() in line_lower:
-                # ワールドパスを抽出（Bedrock / Java CLI）
                 if "bedrock world saved to:" in line_lower:
                     idx = line_lower.index("bedrock world saved to:") + len("bedrock world saved to:")
-                    self.world_path = line[idx:].strip()
-                elif "created new world at:" in line_lower:
-                    idx = line_lower.index("created new world at:") + len("created new world at:")
                     self.world_path = line[idx:].strip()
                 self.generation_complete.set()
                 break

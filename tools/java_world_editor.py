@@ -182,14 +182,22 @@ def _read_chunk(region_path: str, cx_local: int, cz_local: int):
     else:
         raise ValueError(f"未知の圧縮形式: {comp}")
 
-    nbt_data = nbt_lib.NBTFile(fileobj=io.BytesIO(raw))
+    # arnis は zlib(plain_NBT) を書く。nbt_lib の fileobj= は内部で gzip を試みて失敗するため
+    # buffer= を使って直接 plain NBT として読む。gzip 二重ラップの場合は fallback。
+    buf = io.BytesIO(raw)
+    try:
+        nbt_data = nbt_lib.NBTFile(buffer=buf)
+    except Exception:
+        buf.seek(0)
+        nbt_data = nbt_lib.NBTFile(fileobj=buf)
     return nbt_data, comp
 
 
 def _write_chunk(region_path: str, cx_local: int, cz_local: int,
                  nbt_data, comp: int = 2) -> None:
     buf = io.BytesIO()
-    nbt_data.write_file(fileobj=buf)
+    # buffer= を使って plain NBT（gzip ラップなし）で書く。arnis/Chunker 互換形式。
+    nbt_data.write_file(buffer=buf)
     raw = buf.getvalue()
 
     if comp == 2:
