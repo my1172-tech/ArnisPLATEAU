@@ -26,6 +26,7 @@ _TERRAIN_BLOCKS = {
 
 WORLD_MIN_Y = -64
 WORLD_MAX_Y = 319
+ARNIS_GROUND_LEVEL = -62  # Arnis が草を配置するデフォルト地盤面Y（src/args.rs より）
 
 
 # ── ビットパック ヘルパー ──────────────────────────────────────────────────
@@ -254,17 +255,20 @@ def _get_sections_tag(nbt_data):
 # ── 列ごとのベースY検出 ──────────────────────────────────────────────────
 
 def _find_base_y(nbt_data, bx: int, bz: int) -> int:
-    """建物の地盤面Yを推定する（y=55〜90 をスキャンして最初の非エアを返す）。"""
+    """建物の地盤面Yを推定する（ARNIS_GROUND_LEVEL から上方スキャンして最初の非エアを返す）。
+    WORLD_MIN_Y から始めるとテンプレートのベドロック（Y=-64）を拾うため、
+    Arnis が草を置く Y=-62 から開始する。フラット地形では必ず -62 を返す。
+    """
     secs = _get_sections_tag(nbt_data)
     if secs is None:
-        return 64
-    for y in range(55, 90):
+        return ARNIS_GROUND_LEVEL
+    for y in range(ARNIS_GROUND_LEVEL, WORLD_MAX_Y):
         s = _find_section(secs, y >> 4)
         if s is None:
             continue
         if _get_block(s, bx, y & 15, bz) not in _AIR_NAMES:
             return y
-    return 64
+    return ARNIS_GROUND_LEVEL
 
 
 # ── 列の高さ再構築 ────────────────────────────────────────────────────────
@@ -352,7 +356,7 @@ def _rebuild_column(
         if _get_block(s, bx, y & 15, bz) in _AIR_NAMES:
             _set_block(s, bx, y & 15, bz, fill_block)
 
-    for y in range(base_y + target_blocks, base_y + target_blocks + 35):
+    for y in range(base_y + target_blocks, WORLD_MAX_Y + 1):
         if not (WORLD_MIN_Y <= y <= WORLD_MAX_Y):
             break
         s = _find_section(secs, y >> 4)
@@ -406,6 +410,7 @@ def apply_corrections_java(
 
     print(f"[java_editor] 対象チャンク数: {len(chunk_tasks)}")
     corrected = errors = skipped = 0
+    base_y_samples: List[int] = []
 
     for (rx, rz, cx_l, cz_l), tasks in chunk_tasks.items():
         region_path = os.path.join(region_dir, f"r.{rx}.{rz}.mca")
@@ -420,6 +425,8 @@ def apply_corrections_java(
 
             for (bx, bz, t_blocks, forced_mat) in tasks:
                 base_y = _find_base_y(nbt_data, bx, bz)
+                if len(base_y_samples) < 5:
+                    base_y_samples.append(base_y)
                 _rebuild_column(nbt_data, bx, bz, base_y, t_blocks, forced_material=forced_mat)
 
             _write_chunk(region_path, cx_l, cz_l, nbt_data, comp or 2)
@@ -428,5 +435,8 @@ def apply_corrections_java(
             print(f"[java_editor] チャンク({rx},{rz},{cx_l},{cz_l})エラー: {e}")
             import traceback; traceback.print_exc()
             errors += 1
+
+    if base_y_samples:
+        print(f"[java_editor] base_y サンプル(最初5件): {base_y_samples}  ← -62が正常")
 
     return {"corrected": corrected, "errors": errors, "skipped": skipped}
