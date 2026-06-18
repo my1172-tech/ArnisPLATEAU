@@ -468,6 +468,18 @@ class ArnisColorizeGUI:
                     "arnis-windows.exe が正常に終了しているか確認してください。"))
                 return
 
+            # "Saving world..." 検知後も arnis はファイル書き込みを続けているため、
+            # プロセス完全終了を待つ（region/*.mca・metadata.json の書き込み完了を保証）
+            self.root.after(0, lambda: self.lbl_gen_status.config(text="ワールドファイルを書き込み中..."))
+            exited = launcher.wait_until_exit(timeout=120)
+            if not exited:
+                self._log("[WARNING] arnis プロセスの終了待機がタイムアウトしました（120秒）")
+                self._log("ワールドファイルが不完全な可能性があります。処理を中断します。")
+                self.root.after(0, lambda: self._on_generation_error(
+                    "ワールド生成が完了しませんでした（ファイル書き込みタイムアウト 120秒）。\n"
+                    "arnis-windows.exe が正常に終了しているか確認してください。"))
+                return
+
             # 生成されたワールドを特定（Java Edition: フォルダのみ）
             _TILE_CACHE_KEYWORDS = ("tile-cache", "gsi_tiles", "sat_cache", "osm_cache")
             found_world = False

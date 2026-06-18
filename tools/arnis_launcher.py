@@ -103,6 +103,28 @@ class ArnisLauncher:
     def wait_for_complete(self, timeout: int = 3600) -> bool:
         return self.generation_complete.wait(timeout=timeout)
 
+    def wait_until_exit(self, timeout: int = 120) -> bool:
+        """
+        wait_for_complete() の後に呼ぶ。arnis プロセスが実際に終了するまで待機する。
+
+        "Saving world..." はファイル書き込み開始の宣言であり完了シグナルではない。
+        region/*.mca や metadata.json はこの行を出力した後に書き込まれるため、
+        プロセス終了を確認してから後続処理（GSI/PLATEAU/Chunker）を開始する。
+
+        Returns:
+            True  - プロセスが timeout 秒以内に終了した
+            False - タイムアウト（プロセスはまだ実行中）
+        """
+        if self.process is None:
+            return True
+        if self.process.poll() is not None:
+            return True
+        try:
+            self.process.wait(timeout=timeout)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+
     def get_logs(self) -> list:
         lines = []
         while not self.log_queue.empty():
