@@ -649,57 +649,89 @@ class ArnisColorizeGUI:
             corrections_for_calib = None
             metadata_for_calib = None
 
-            # PLATEAU補正はJava Editionワールド(.mca)が必要なため、直接Bedrock/Luanti出力時はスキップ
+            # PLATEAU高さ事前マージ（2段階生成）
+            # 直接Bedrock/Luanti出力時はスキップ（Java Edition .mca が不要な形式）
             skip_plateau = (fmt == "luanti") or (fmt == "bedrock" and not self.mcworld_enabled.get())
             if self.plateau_height_enabled.get() and not skip_plateau:
                 fp_mode = self.plateau_footprint_mode.get()
                 fp_mode_label = {"priority": "優先度判定", "shrink": "縮小して回避", "skip": "変更を見送る"}.get(fp_mode, fp_mode)
+                self._log("[ArnisPLATEAU] 第1段階: ワールド生成完了")
                 self._log(f"形状補正モード: {fp_mode}（{fp_mode_label}）")
-                self._log("PLATEAU実測データを取得中...")
-                self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU実測データを取得中..."))
-                try:
-                    from plateau_height_merge import build_height_corrections
-                    from world_height_writer import apply_height_corrections
+                osm_plateau_path = os.path.join(output_dir, "osm_plateau.json")
 
-                    # osm_merged.json優先、なければ osm_raw.json
-                    plateau_merged = os.path.join(self.output_dir, "osm_merged.json")
-                    plateau_source = plateau_merged if os.path.exists(plateau_merged) else os.path.join(self.output_dir, "osm_raw.json")
+                if os.path.exists(osm_raw_path):
+                    try:
+                        from plateau_height_merge import build_osm_height_patch
 
-                    # metadata.json をワールドフォルダまたは .mcworld zip 内から取得
-                    world_path_for_plateau = self.world_folder.get()
-                    metadata = _get_metadata_from_world(world_path_for_plateau)
-                    metadata_for_calib = metadata
+                        self._log("[ArnisPLATEAU] PLATEAU高さをOSMデータにマージ中...")
+                        self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU高さをOSMデータにマージ中..."))
 
-                    if os.path.exists(plateau_source) and metadata:
-                        with open(plateau_source, "r", encoding="utf-8") as f:
-                            osm_data = json.load(f)
+                        with open(osm_raw_path, "r", encoding="utf-8") as f:
+                            osm_for_patch = json.load(f)
 
-                        corrections = build_height_corrections(
-                            bbox, osm_data, metadata,
+                        patched_osm, patch_count = build_osm_height_patch(
+                            bbox=bbox,
+                            osm_data=osm_for_patch,
                             footprint_mode=fp_mode,
                             max_dist_m=self.plateau_dist_m.get(),
                         )
-                        corrections_for_calib = corrections
-                        if corrections:
-                            self._log(f"PLATEAU対応建物: {len(corrections)}棟を補正します")
-                            # 常に Java Edition フォルダに直接適用（Java world editor が region/*.mca を編集）
-                            result = apply_height_corrections(world_path_for_plateau, corrections)
-                            msg = f"PLATEAU高さ補正完了: {result['corrected']}棟（エラー{result.get('errors', 0)}棟）"
-                            self._log(msg)
-                            self.root.after(0, lambda m=msg: self.lbl_gen_status.config(text=m))
+
+                        with open(osm_plateau_path, "w", encoding="utf-8") as f:
+                            json.dump(patched_osm, f, ensure_ascii=False)
+
+                        self._log(f"[ArnisPLATEAU] {patch_count}棟の建物高さを更新しました")
+
+                        # 第2段階: PLATEAU高さ込みでワールド再生成
+                        self._log("[ArnisPLATEAU] 第2段階: PLATEAU高さ込みでワールド再生成中...")
+                        self.root.after(0, lambda: self.lbl_gen_status.config(text="第2段階: ワールド再生成中..."))
+
+                        stage2_start_time = time.time()
+                        launcher2 = ArnisLauncher()
+                        launcher2.launch(
+                            arnis_exe,
+                            bbox=bbox,
+                            output_dir=output_dir,
+                            bedrock=False,
+                            osm_file=osm_plateau_path,
+                            spawn_lat=spawn_lat,
+                            spawn_lon=spawn_lon,
+                        )
+
+                        self.root.after(0, lambda: self.lbl_gen_status.config(text="第2段階: ワールド生成中..."))
+                        ok2 = launcher2.wait_for_complete(timeout=3600)
+                        if not ok2:
+                            self._log("[WARNING] 第2段階がタイムアウトしました。第1段階のワールドを使用します")
                         else:
-                            self._log("PLATEAU補正: 対応データなし（osm-PLATEAU間でマッチした建物が0件）")
-                            self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU補正: 対応データなし"))
-                    else:
-                        self._log(f"PLATEAU補正スキップ: source={os.path.exists(plateau_source)}, metadata={bool(metadata)}")
-                        self.root.after(0, lambda: self.lbl_gen_status.config(
-                            text="PLATEAU補正: metadata.jsonまたはOSMデータが見つかりません"
-                        ))
-                        print(f"[PLATEAU高さ補正] source={plateau_source}(exists={os.path.exists(plateau_source)}), "
-                              f"metadata={'あり' if metadata else 'なし'}, world={world_path_for_plateau}")
-                except Exception as e:
-                    self._log(f"[PLATEAU補正] エラー（スキップして続行）: {e}")
-                    print(f"[PLATEAU補正] エラー: {e}")
+                            exited2 = launcher2.wait_until_exit(timeout=120)
+                            if not exited2:
+                                self._log("[WARNING] 第2段階のプロセス終了待機がタイムアウトしました")
+
+                            # 第2段階のワールドフォルダを確定
+                            if launcher2.world_path and os.path.isdir(launcher2.world_path):
+                                self.world_folder.set(launcher2.world_path)
+                            else:
+                                try:
+                                    subdirs2 = [
+                                        d for d in os.scandir(output_dir)
+                                        if d.is_dir()
+                                        and d.name not in ("__pycache__", ".git")
+                                        and not any(kw in d.name.lower() for kw in _TILE_CACHE_KEYWORDS)
+                                        and d.stat().st_mtime >= stage2_start_time - 5
+                                    ]
+                                    if subdirs2:
+                                        newest2 = max(subdirs2, key=lambda d: d.stat().st_mtime)
+                                        self.world_folder.set(newest2.path)
+                                except Exception:
+                                    pass
+
+                            self._log("[ArnisPLATEAU] 完了")
+                            self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU高さ込みワールド生成完了"))
+
+                    except Exception as e:
+                        self._log(f"[PLATEAU事前マージ] エラー（スキップして続行）: {e}")
+                        print(f"[PLATEAU事前マージ] エラー: {e}")
+                else:
+                    self._log("PLATEAU補正スキップ: osm_raw.json が見つかりません（--save-json-file 非対応の可能性）")
 
             # キャリブレーション（PLATEAU補正直後、mcworld変換前）
             calib_pts = self._get_calibration_points()

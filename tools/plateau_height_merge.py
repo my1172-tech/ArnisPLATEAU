@@ -8,6 +8,7 @@ footprint置き換えモード（footprint_mode）:
   "shrink"   重複検出時にPLATEAU bboxを5%縮小して再チェック。縮小後も重複すればskip扱い。
   "priority" PLATEAU bbox面積が大きい建物を優先。小建物が重複していても大建物のbboxを採用。
 """
+import copy
 import json
 from typing import Dict, List, Optional, Tuple
 from plateau_fetcher import fetch_plateau_buildings, find_building_for_footprint
@@ -210,3 +211,65 @@ def build_height_corrections(
     print(f"  footprint置き換え: {fp_replaced}棟 / IoU不足スキップ: {fp_skipped_iou}棟 "
           f"/ 重複スキップ: {fp_skipped_overlap}棟")
     return corrections
+
+
+def build_osm_height_patch(
+    bbox: dict,
+    osm_data: dict,
+    footprint_mode: str = "priority",
+    max_dist_m: float = 50.0,
+) -> tuple:
+    """
+    OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
+    osm_dataはOSM raw形式（elements配列）である必要がある（arnis --file で使用するため）。
+    metadata不要（MC座標変換は行わない）。
+
+    Returns:
+        (patched_osm_data: dict, patch_count: int)
+    """
+    patched = copy.deepcopy(osm_data)
+
+    plateau_buildings = fetch_plateau_buildings(bbox)
+    if not plateau_buildings:
+        print("[plateau_height_merge] PLATEAUデータなし → OSMパッチをスキップ")
+        return patched, 0
+
+    osm_buildings = extract_buildings_with_polygons(osm_data)
+    if not osm_buildings:
+        print("[plateau_height_merge] OSM建物なし → OSMパッチをスキップ")
+        return patched, 0
+
+    print(f"[plateau_height_merge] build_osm_height_patch: "
+          f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟")
+
+    patch_count = 0
+    for osm_b in osm_buildings:
+        polygon = osm_b.get("polygon", [])
+        if len(polygon) < 3:
+            continue
+        center_lat = sum(p[0] for p in polygon) / len(polygon)
+        center_lon = sum(p[1] for p in polygon) / len(polygon)
+
+        match = find_building_for_footprint(
+            plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
+        )
+        if not match:
+            continue
+        height = match.get("measured_height")
+        if height is None:
+            continue
+
+        osm_id = osm_b.get("id")
+        if osm_id is None:
+            continue
+
+        for elem in patched.get("elements", []):
+            if elem.get("id") == osm_id:
+                if "tags" not in elem:
+                    elem["tags"] = {}
+                elem["tags"]["height"] = str(round(height, 1))
+                patch_count += 1
+                break
+
+    print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU高さを設定")
+    return patched, patch_count

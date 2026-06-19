@@ -22,6 +22,7 @@ def build_arnis_args(
     bedrock: bool = False,
     luanti: bool = False,
     save_json_path: str | None = None,
+    osm_file: str | None = None,
     spawn_lat: float | None = None,
     spawn_lon: float | None = None,
     terrain: bool = False,
@@ -49,6 +50,8 @@ def build_arnis_args(
         args.append("--luanti")
     if save_json_path and has("--save-json-file"):
         args += ["--save-json-file", save_json_path]
+    if osm_file and os.path.exists(osm_file) and has("--file"):
+        args += ["--file", osm_file]
     if spawn_lat is not None and spawn_lon is not None:
         if has("--spawn-lat"):
             args += ["--spawn-lat", str(spawn_lat)]
@@ -81,6 +84,7 @@ class ArnisLauncher:
         spawn_lat: float = None,
         spawn_lon: float = None,
         save_json_path: str = None,
+        osm_file: str = None,
         available_flags: dict = None,
     ):
         """
@@ -102,6 +106,7 @@ class ArnisLauncher:
             bedrock=bedrock,
             luanti=luanti,
             save_json_path=save_json_path,
+            osm_file=osm_file,
             spawn_lat=spawn_lat,
             spawn_lon=spawn_lon,
             available_flags=available_flags,
