@@ -481,6 +481,14 @@ class BuildingHeightEditor:
         if var and not var.get() and row.get("adopt_height") is None and web_h is not None:
             var.set(f"{web_h:.0f}")
 
+        # Web取得失敗 + building_levels あり → 推定値を採用値に自動入力（空欄のみ）
+        if web_h is None:
+            levels = row.get("building_levels")
+            if levels:
+                var = self._adopt_vars.get(osm_id)
+                if var and not var.get().strip():
+                    var.set(str(round(levels * 3.75)))
+
     # ── 高さ推定ポップアップ ─────────────────────────────────────────────
 
     def _show_height_estimate(self, row: dict):

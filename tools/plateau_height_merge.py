@@ -11,7 +11,7 @@ footprint置き換えモード（footprint_mode）:
 import copy
 import json
 from typing import Dict, List, Optional, Tuple
-from plateau_fetcher import fetch_plateau_buildings, find_building_for_footprint
+from plateau_fetcher import fetch_plateau_buildings, find_building_for_footprint, _haversine_m
 from osm_building_extractor import extract_buildings_with_polygons
 
 FOOTPRINT_MODES = ("skip", "shrink", "priority")
@@ -231,16 +231,19 @@ def build_osm_height_patch(
     """
     patched = copy.deepcopy(osm_data)
 
-    # height_overrides を osm_id でインデックス化
+    # height_overrides を id一致用と手動近傍用に分類
     overrides_by_id = {}
+    manual_overrides = []
     if height_overrides:
         for o in height_overrides:
             oid = o.get("osm_id")
-            if oid is not None:
+            if isinstance(oid, str) and oid.startswith("manual_"):
+                manual_overrides.append(o)
+            elif oid is not None:
                 overrides_by_id[oid] = o
 
     plateau_buildings = fetch_plateau_buildings(bbox)
-    if not plateau_buildings and not overrides_by_id:
+    if not plateau_buildings and not overrides_by_id and not manual_overrides:
         print("[plateau_height_merge] PLATEAUデータなし・overridesなし → OSMパッチをスキップ")
         return patched, 0
 
@@ -251,7 +254,7 @@ def build_osm_height_patch(
 
     print(f"[plateau_height_merge] build_osm_height_patch: "
           f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟"
-          f" / overrides {len(overrides_by_id)}棟")
+          f" / overrides {len(overrides_by_id)}棟 / manual {len(manual_overrides)}棟")
 
     patch_count = 0
     for osm_b in osm_buildings:
@@ -259,23 +262,38 @@ def build_osm_height_patch(
         if osm_id is None:
             continue
 
-        # height_overrides を最優先でチェック
+        polygon = osm_b.get("polygon", [])
+        center_lat = sum(p[0] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
+        center_lon = sum(p[1] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
+
+        # 優先1: osm_id 一致の override
         if osm_id in overrides_by_id:
             height = overrides_by_id[osm_id].get("height_m")
         else:
-            # PLATEAUマッチング
-            polygon = osm_b.get("polygon", [])
-            if len(polygon) < 3:
-                continue
-            center_lat = sum(p[0] for p in polygon) / len(polygon)
-            center_lon = sum(p[1] for p in polygon) / len(polygon)
-            match = find_building_for_footprint(
-                plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
-            )
-            height = match.get("measured_height") if match else None
+            height = None
+            # 優先2: 手動追加行 — lat/lon 近傍（50m以内）でマッチング
+            if manual_overrides and center_lat is not None:
+                best_dist = float("inf")
+                best_override = None
+                for o in manual_overrides:
+                    if o.get("lat") is None or o.get("lon") is None:
+                        continue
+                    dist = _haversine_m(center_lat, center_lon, o["lat"], o["lon"])
+                    if dist <= 50.0 and dist < best_dist:
+                        best_dist = dist
+                        best_override = o
+                if best_override:
+                    height = best_override.get("height_m")
 
-        if height is None:
-            continue
+            # 優先3: PLATEAUマッチング
+            if height is None and plateau_buildings and center_lat is not None:
+                match = find_building_for_footprint(
+                    plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
+                )
+                height = match.get("measured_height") if match else None
+
+            if height is None:
+                continue
 
         for elem in patched.get("elements", []):
             if elem.get("id") == osm_id:
