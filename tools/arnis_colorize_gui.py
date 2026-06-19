@@ -165,18 +165,56 @@ class ArnisColorizeGUI:
         self._build_ui()
 
     def _build_ui(self):
-        self._build_status_bar(self.root)
-        self._build_top_row(self.root)            # 生成エリア（左）＋ 出力形式（右）
-        self._build_calibration_section(self.root)
-        self._build_gsi_section(self.root)
-        self._build_world_gen_section(self.root)
+        inner = self._build_scrollable_frame()
+        self._bind_mousewheel()
+
+        self._build_status_bar(inner)
+        self._build_top_row(inner)
+        self._build_calibration_section(inner)
+        self._build_gsi_section(inner)
+        self._build_world_gen_section(inner)
 
         if PRO_MODE:
-            self._build_license_section(self.root)
-            self._build_api_key_section(self.root)
-            self._build_colorize_section(self.root)
+            self._build_license_section(inner)
+            self._build_api_key_section(inner)
+            self._build_colorize_section(inner)
 
-        self._build_generate_section(self.root)   # 色付けセクション（末尾固定）
+        self._build_generate_section(inner)
+
+    # ── スクロール可能フレーム ────────────────────────────────────────────────
+
+    def _build_scrollable_frame(self) -> tk.Frame:
+        outer = tk.Frame(self.root)
+        outer.pack(fill="both", expand=True)
+
+        self.canvas = tk.Canvas(outer, highlightthickness=0)
+        scrollbar = tk.Scrollbar(outer, orient="vertical", command=self.canvas.yview)
+
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        inner = tk.Frame(self.canvas)
+        self.canvas_window = self.canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        inner.bind("<Configure>", self._on_frame_configure)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+
+        return inner
+
+    def _on_frame_configure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
+
+    def _bind_mousewheel(self):
+        def _on_mousewheel(event):
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.root.bind_all("<MouseWheel>", _on_mousewheel)
+        self.root.bind_all("<Button-4>", lambda e: self.canvas.yview_scroll(-1, "units"))
+        self.root.bind_all("<Button-5>", lambda e: self.canvas.yview_scroll(1, "units"))
 
     # ── ステータスバー ────────────────────────────────────────────────────────
 
