@@ -98,6 +98,16 @@ def fetch_height_from_overpass(building_name: str, bbox: dict):
     return None
 
 
+def _parse_building_levels(val):
+    """building:levels タグを整数に変換する。失敗時は None。"""
+    if val is None:
+        return None
+    try:
+        return int(float(str(val)))
+    except (ValueError, TypeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # BuildingHeightEditor ダイアログ
 # ---------------------------------------------------------------------------
@@ -114,13 +124,14 @@ class BuildingHeightEditor:
         self.osm_data = osm_data or {}
         self.save_path = save_path
         self.rows = []
-        self._adopt_vars = {}   # osm_id -> tk.StringVar（再描画時も保持）
-        self._web_lbls = {}     # osm_id -> tk.Label（描画中のみ有効）
+        self._adopt_vars = {}    # osm_id -> tk.StringVar（再描画時も保持）
+        self._web_lbls = {}      # osm_id -> tk.Label（描画中のみ有効）
+        self._web_fetch_done = set()  # Webフェッチ完了済み osm_id のセット
         self._filter_var = tk.StringVar(value="全て")
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("建物高さ調整")
-        self.dialog.geometry("900x520")
+        self.dialog.geometry("900x580")
         self.dialog.resizable(True, True)
         self.dialog.grab_set()
 
@@ -181,6 +192,9 @@ class BuildingHeightEditor:
             lambda e: self._canvas.itemconfig(self._cw, width=e.width)
         )
 
+        # 座標直接入力フォーム
+        self._build_coord_input_form()
+
         # ボタン行
         btn_frame = tk.Frame(self.dialog)
         btn_frame.pack(fill="x", padx=8, pady=6)
@@ -193,6 +207,37 @@ class BuildingHeightEditor:
         tk.Button(
             btn_frame, text="キャンセル",
             command=self.dialog.destroy
+        ).pack(side="left")
+
+    def _build_coord_input_form(self):
+        """座標直接指定で建物を追加するフォーム"""
+        frame = tk.LabelFrame(
+            self.dialog, text="建物を直接指定して追加",
+            padx=8, pady=4, font=("", 8)
+        )
+        frame.pack(fill="x", padx=8, pady=(4, 0))
+
+        row1 = tk.Frame(frame)
+        row1.pack(fill="x", pady=(0, 3))
+        tk.Label(row1, text="座標:", width=12, anchor="w", font=("", 8)).pack(side="left")
+        self.coord_entry = tk.Entry(row1, font=("", 8))
+        self.coord_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Label(
+            row1, text="例: 35.67034681710347, 139.7501661061619",
+            fg="#6b7280", font=("", 7)
+        ).pack(side="left")
+
+        row2 = tk.Frame(frame)
+        row2.pack(fill="x")
+        tk.Label(row2, text="建物名（任意）:", width=12, anchor="w", font=("", 8)).pack(side="left")
+        self.name_entry = tk.Entry(row2, font=("", 8), width=20)
+        self.name_entry.pack(side="left", padx=(0, 8))
+        tk.Label(row2, text="高さ(m):", font=("", 8)).pack(side="left")
+        self.height_entry = tk.Entry(row2, font=("", 8), width=8)
+        self.height_entry.pack(side="left", padx=(2, 8))
+        tk.Button(
+            row2, text="追加", command=self._on_add_manual,
+            font=("", 8), padx=6, pady=2
         ).pack(side="left")
 
     # ── データ取得（バックグラウンド） ───────────────────────────────────
@@ -231,6 +276,7 @@ class BuildingHeightEditor:
                 "adopt_height": adopt,
                 "lat": lat,
                 "lon": lon,
+                "building_levels": ob.get("building_levels"),
             })
 
         self.rows = rows
@@ -274,6 +320,7 @@ class BuildingHeightEditor:
                     "osm_height": h,
                     "lat": center.get("lat"),
                     "lon": center.get("lon"),
+                    "building_levels": _parse_building_levels(tags.get("building:levels")),
                 })
             return buildings
         except Exception as e:
@@ -303,10 +350,15 @@ class BuildingHeightEditor:
             self._add_row_widget(row, displayed)
             displayed += 1
 
+    def _refresh_table(self):
+        self._render_rows()
+
     def _add_row_widget(self, row: dict, idx: int):
         bg = "#f9fafb" if idx % 2 == 0 else "white"
         frame = tk.Frame(self._table_frame, bg=bg)
         frame.pack(fill="x", pady=1)
+
+        osm_id = row["osm_id"]
 
         # 建物名
         name_text = row["name"][:18] if len(row["name"]) > 18 else row["name"]
@@ -322,19 +374,31 @@ class BuildingHeightEditor:
         p_text = f"{row['plateau_height']:.0f}m" if row["plateau_height"] is not None else "取得失敗"
         tk.Label(frame, text=p_text, bg=bg, width=9, anchor="w", font=("", 8)).pack(side="left", padx=2)
 
-        # Web高さ
+        # Web高さ（状態に応じて「取得中...」「Xm」「🔍推測」を切り替え）
         web_h = row.get("web_height")
-        web_text = f"{web_h:.0f}m" if web_h is not None else "--"
-        is_diff = self._is_significant_diff(row["plateau_height"], web_h)
-        web_bg = "#fca5a5" if is_diff else bg
-        web_lbl = tk.Label(
-            frame, text=web_text, bg=web_bg, width=9, anchor="w", font=("", 8)
-        )
+        is_done = osm_id in self._web_fetch_done
+
+        if web_h is not None:
+            is_diff = self._is_significant_diff(row["plateau_height"], web_h)
+            web_bg = "#fca5a5" if is_diff else bg
+            web_lbl = tk.Label(
+                frame, text=f"{web_h:.0f}m", bg=web_bg, width=9, anchor="w", font=("", 8)
+            )
+        elif is_done:
+            web_lbl = tk.Label(
+                frame, text="🔍推測", bg=bg, width=9, anchor="w",
+                font=("", 8), fg="#2563eb", cursor="hand2"
+            )
+            web_lbl.bind("<Button-1>", lambda e, r=row: self._show_height_estimate(r))
+        else:
+            web_lbl = tk.Label(
+                frame, text="取得中...", bg=bg, width=9, anchor="w",
+                font=("", 8), fg="#9ca3af"
+            )
         web_lbl.pack(side="left", padx=2)
-        self._web_lbls[row["osm_id"]] = web_lbl
+        self._web_lbls[osm_id] = web_lbl
 
         # 採用値 Entry（再描画をまたいで値を保持）
-        osm_id = row["osm_id"]
         if osm_id not in self._adopt_vars:
             adopt_init = row["adopt_height"]
             self._adopt_vars[osm_id] = tk.StringVar(
@@ -365,18 +429,25 @@ class BuildingHeightEditor:
 
     def _fetch_web_heights_async(self):
         for row in self.rows:
+            osm_id = row["osm_id"]
             name = row["name"]
-            if not name or name.startswith("建物("):
-                continue
-            height = fetch_height_from_wikipedia(name)
-            if height is None:
-                height = fetch_height_from_overpass(name, self.bbox)
-            if height is not None:
-                row["web_height"] = height
-                try:
-                    self.dialog.after(0, lambda r=row: self._update_single_web(r))
-                except Exception:
-                    pass
+            skip = (
+                not name
+                or name.startswith("建物(")
+                or name.startswith("手動追加(")
+            )
+            if not skip:
+                height = fetch_height_from_wikipedia(name)
+                if height is None:
+                    height = fetch_height_from_overpass(name, self.bbox)
+                if height is not None:
+                    row["web_height"] = height
+
+            self._web_fetch_done.add(osm_id)
+            try:
+                self.dialog.after(0, lambda r=row: self._update_single_web(r))
+            except Exception:
+                pass
 
         try:
             plateau_count = sum(1 for r in self.rows if r["plateau_height"] is not None)
@@ -389,21 +460,111 @@ class BuildingHeightEditor:
     def _update_single_web(self, row: dict):
         """1棟のWeb高さをラベルに反映（ウィジェット再生成なし）"""
         osm_id = row["osm_id"]
-        web_h = row["web_height"]
+        web_h = row.get("web_height")
 
         lbl = self._web_lbls.get(osm_id)
         if lbl:
             try:
-                lbl.config(text=f"{web_h:.0f}m")
-                if self._is_significant_diff(row["plateau_height"], web_h):
-                    lbl.config(bg="#fca5a5")
+                if web_h is not None:
+                    lbl.config(text=f"{web_h:.0f}m", fg="black", cursor="")
+                    lbl.unbind("<Button-1>")
+                    if self._is_significant_diff(row["plateau_height"], web_h):
+                        lbl.config(bg="#fca5a5")
+                else:
+                    lbl.config(text="🔍推測", fg="#2563eb", cursor="hand2")
+                    lbl.bind("<Button-1>", lambda e, r=row: self._show_height_estimate(r))
             except tk.TclError:
                 pass
 
         # 採用値が空かつ PLATEAU も OSM もない場合は Web 値を初期設定
         var = self._adopt_vars.get(osm_id)
-        if var and not var.get() and row.get("adopt_height") is None:
+        if var and not var.get() and row.get("adopt_height") is None and web_h is not None:
             var.set(f"{web_h:.0f}")
+
+    # ── 高さ推定ポップアップ ─────────────────────────────────────────────
+
+    def _show_height_estimate(self, row: dict):
+        """building:levels から高さ推定を表示する小ウィンドウ"""
+        levels = row.get("building_levels")
+
+        win = tk.Toplevel(self.dialog)
+        win.title("高さ推定")
+        win.resizable(False, False)
+        win.grab_set()
+
+        if levels:
+            est_min = round(levels * 3.5)
+            est_max = round(levels * 4.0)
+            text = (
+                f"※ Webで高さデータが見つかりませんでした\n\n"
+                f"建物情報から推測する場合の参考:\n"
+                f"・地上 {levels}階建て\n"
+                f"・一般的なオフィスビルの階高: 約3.5〜4m/階\n\n"
+                f"▶ 推定: 約{est_min}〜{est_max}m程度\n"
+                f"  ({est_min}〜{est_max}ブロック)"
+            )
+        else:
+            text = (
+                f"※ Webで高さデータが見つかりませんでした\n\n"
+                f"階数情報も取得できませんでした。\n"
+                f"手動で高さを入力してください。\n\n"
+                f"参考: 一般的なオフィスビルは\n"
+                f"  1階あたり約3.5〜4m"
+            )
+
+        tk.Label(win, text=text, justify="left", padx=16, pady=16).pack()
+        tk.Button(win, text="閉じる", command=win.destroy).pack(pady=8)
+
+    # ── 座標直接指定 ─────────────────────────────────────────────────────
+
+    def _parse_coords(self, text: str):
+        """緯度・経度のペアを様々な形式から解析する。失敗時は None。"""
+        nums = re.findall(r"[-+]?\d+\.?\d*", text)
+        if len(nums) >= 2:
+            try:
+                return float(nums[0]), float(nums[1])
+            except ValueError:
+                return None
+        return None
+
+    def _on_add_manual(self):
+        """「追加」ボタン: 座標指定で建物行をリストに追加する"""
+        coords = self._parse_coords(self.coord_entry.get())
+        if coords is None:
+            self.coord_entry.config(bg="lightcoral")
+            return
+        self.coord_entry.config(bg="white")
+
+        lat, lon = coords
+        name = self.name_entry.get().strip() or None
+        height_str = self.height_entry.get().strip()
+        height = None
+        if height_str:
+            try:
+                height = float(height_str)
+            except ValueError:
+                pass
+
+        osm_id = f"manual_{lat:.5f}_{lon:.5f}"
+        row = {
+            "osm_id": osm_id,
+            "name": name or f"手動追加({lat:.4f},{lon:.4f})",
+            "lat": lat,
+            "lon": lon,
+            "osm_height": None,
+            "plateau_height": None,
+            "web_height": None,
+            "adopt_height": height,
+            "building_levels": None,
+        }
+        # 手動追加行はWebフェッチ対象外として即 done にマーク
+        self._web_fetch_done.add(osm_id)
+        self.rows.append(row)
+        self._render_rows()
+
+        self.coord_entry.delete(0, tk.END)
+        self.name_entry.delete(0, tk.END)
+        self.height_entry.delete(0, tk.END)
 
     # ── 確定・保存 ───────────────────────────────────────────────────────
 
