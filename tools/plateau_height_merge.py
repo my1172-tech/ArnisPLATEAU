@@ -218,20 +218,30 @@ def build_osm_height_patch(
     osm_data: dict,
     footprint_mode: str = "priority",
     max_dist_m: float = 50.0,
+    height_overrides: list = None,
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
     osm_dataはOSM raw形式（elements配列）である必要がある（arnis --file で使用するため）。
     metadata不要（MC座標変換は行わない）。
+    height_overrides: height_overrides.json の overrides リスト。osm_idが一致する建物を最優先で適用。
 
     Returns:
         (patched_osm_data: dict, patch_count: int)
     """
     patched = copy.deepcopy(osm_data)
 
+    # height_overrides を osm_id でインデックス化
+    overrides_by_id = {}
+    if height_overrides:
+        for o in height_overrides:
+            oid = o.get("osm_id")
+            if oid is not None:
+                overrides_by_id[oid] = o
+
     plateau_buildings = fetch_plateau_buildings(bbox)
-    if not plateau_buildings:
-        print("[plateau_height_merge] PLATEAUデータなし → OSMパッチをスキップ")
+    if not plateau_buildings and not overrides_by_id:
+        print("[plateau_height_merge] PLATEAUデータなし・overridesなし → OSMパッチをスキップ")
         return patched, 0
 
     osm_buildings = extract_buildings_with_polygons(osm_data)
@@ -240,27 +250,31 @@ def build_osm_height_patch(
         return patched, 0
 
     print(f"[plateau_height_merge] build_osm_height_patch: "
-          f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟")
+          f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟"
+          f" / overrides {len(overrides_by_id)}棟")
 
     patch_count = 0
     for osm_b in osm_buildings:
-        polygon = osm_b.get("polygon", [])
-        if len(polygon) < 3:
-            continue
-        center_lat = sum(p[0] for p in polygon) / len(polygon)
-        center_lon = sum(p[1] for p in polygon) / len(polygon)
-
-        match = find_building_for_footprint(
-            plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
-        )
-        if not match:
-            continue
-        height = match.get("measured_height")
-        if height is None:
-            continue
-
         osm_id = osm_b.get("id")
         if osm_id is None:
+            continue
+
+        # height_overrides を最優先でチェック
+        if osm_id in overrides_by_id:
+            height = overrides_by_id[osm_id].get("height_m")
+        else:
+            # PLATEAUマッチング
+            polygon = osm_b.get("polygon", [])
+            if len(polygon) < 3:
+                continue
+            center_lat = sum(p[0] for p in polygon) / len(polygon)
+            center_lon = sum(p[1] for p in polygon) / len(polygon)
+            match = find_building_for_footprint(
+                plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
+            )
+            height = match.get("measured_height") if match else None
+
+        if height is None:
             continue
 
         for elem in patched.get("elements", []):
@@ -271,5 +285,5 @@ def build_osm_height_patch(
                 patch_count += 1
                 break
 
-    print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU高さを設定")
+    print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override高さを設定")
     return patched, patch_count

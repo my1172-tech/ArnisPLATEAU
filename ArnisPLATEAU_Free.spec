@@ -28,6 +28,7 @@ a = Analysis(
         ('tools\\java_world_editor.py', '.'),
         ('tools\\calibration.py', '.'),
         ('tools\\chunker_converter.py', '.'),
+        ('tools\\building_height_editor.py', '.'),
         ('tools\\chunker-cli', 'chunker-cli'),
     ],
     hiddenimports=[

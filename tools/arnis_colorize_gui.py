@@ -128,6 +128,10 @@ class ArnisColorizeGUI:
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.arnis_exe = find_arnis_exe(self.base_dir)
 
+        # 出力ディレクトリ（_run_generation で更新される。初期値は base_dir）
+        self.output_dir = self.base_dir
+        self.height_overrides_path = os.path.join(self.base_dir, "height_overrides.json")
+
         # 出力設定変数
         self.world_folder = tk.StringVar(value="")
 
@@ -460,6 +464,14 @@ class ArnisColorizeGUI:
         frame = tk.LabelFrame(parent, text="ワールド生成", padx=8, pady=8)
         frame.pack(fill="x", padx=10, pady=5)
 
+        tk.Button(
+            frame,
+            text="建物高さを確認・調整する（オプション）",
+            command=self._open_height_editor,
+            font=("", 9),
+            relief="flat", bg="#eff6ff", padx=8, pady=4,
+        ).pack(fill="x", pady=(0, 6))
+
         self.btn_generate = tk.Button(
             frame, text="ワールド生成を開始",
             command=self._on_generate_click,
@@ -472,6 +484,30 @@ class ArnisColorizeGUI:
         self.lbl_gen_status.pack(fill="x", pady=(6, 0))
 
     # ── 生成処理本体 (TASK 4) ─────────────────────────────────────────────────
+
+    def _open_height_editor(self):
+        bbox = self._get_current_bbox()
+        if not bbox:
+            messagebox.showerror("エラー", "先に生成エリアを指定してください")
+            return
+
+        osm_data = {}
+        osm_raw_path = os.path.join(self.output_dir, "osm_raw.json")
+        if os.path.exists(osm_raw_path):
+            try:
+                with open(osm_raw_path, encoding="utf-8") as f:
+                    osm_data = json.load(f)
+            except Exception:
+                pass
+
+        self.height_overrides_path = os.path.join(self.output_dir, "height_overrides.json")
+
+        from building_height_editor import BuildingHeightEditor
+        editor = BuildingHeightEditor(
+            self.root, bbox, osm_data,
+            save_path=self.height_overrides_path,
+        )
+        self.root.wait_window(editor.dialog)
 
     def _on_generate_click(self):
         bbox = self._get_current_bbox()
@@ -663,6 +699,19 @@ class ArnisColorizeGUI:
                     try:
                         from plateau_height_merge import build_osm_height_patch
 
+                        # height_overrides.json を読み込む（存在する場合）
+                        height_overrides = []
+                        ho_path = os.path.join(output_dir, "height_overrides.json")
+                        if os.path.exists(ho_path):
+                            try:
+                                with open(ho_path, "r", encoding="utf-8") as f:
+                                    ho_data = json.load(f)
+                                height_overrides = ho_data.get("overrides", [])
+                                if height_overrides:
+                                    self._log(f"[ArnisPLATEAU] 建物高さ手動上書き: {len(height_overrides)}棟")
+                            except Exception:
+                                pass
+
                         self._log("[ArnisPLATEAU] PLATEAU高さをOSMデータにマージ中...")
                         self.root.after(0, lambda: self.lbl_gen_status.config(text="PLATEAU高さをOSMデータにマージ中..."))
 
@@ -674,6 +723,7 @@ class ArnisColorizeGUI:
                             osm_data=osm_for_patch,
                             footprint_mode=fp_mode,
                             max_dist_m=self.plateau_dist_m.get(),
+                            height_overrides=height_overrides,
                         )
 
                         with open(osm_plateau_path, "w", encoding="utf-8") as f:
