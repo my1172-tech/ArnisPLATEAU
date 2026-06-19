@@ -15,6 +15,52 @@ import json
 _CREATE_NO_WINDOW = 0x08000000
 
 
+def build_arnis_args(
+    arnis_exe: str,
+    bbox: str,
+    output_dir: str,
+    bedrock: bool = False,
+    save_json_path: str | None = None,
+    spawn_lat: float | None = None,
+    spawn_lon: float | None = None,
+    terrain: bool = False,
+    scale: float = 1.0,
+    ground_level: int = -62,
+    timeout: int | None = None,
+    available_flags: dict | None = None,
+) -> list[str]:
+    """
+    利用可能なフラグをチェックしながら arnis CLIコマンドリストを構築する。
+    available_flags が None の場合は全フラグ利用可能とみなす（現行デフォルト）。
+    本家バージョンアップでフラグが追加・廃止されても available_flags で吸収する。
+    """
+    def has(flag: str) -> bool:
+        return available_flags is None or available_flags.get(flag, False)
+
+    args = [arnis_exe]
+    if has("--bbox"):
+        args += ["--bbox", bbox]
+    if has("--output-dir"):
+        args += ["--output-dir", output_dir]
+    if bedrock and has("--bedrock"):
+        args.append("--bedrock")
+    if save_json_path and has("--save-json-file"):
+        args += ["--save-json-file", save_json_path]
+    if spawn_lat is not None and spawn_lon is not None:
+        if has("--spawn-lat"):
+            args += ["--spawn-lat", str(spawn_lat)]
+        if has("--spawn-lng"):
+            args += ["--spawn-lng", str(spawn_lon)]
+    if terrain and has("--terrain"):
+        args.append("--terrain")
+    if scale != 1.0 and has("--scale"):
+        args += ["--scale", str(scale)]
+    if ground_level != -62 and has("--ground-level"):
+        args += ["--ground-level", str(ground_level)]
+    if timeout is not None and has("--timeout"):
+        args += ["--timeout", str(timeout)]
+    return args
+
 class ArnisLauncher:
     def __init__(self):
         self.process = None
@@ -31,6 +77,7 @@ class ArnisLauncher:
         spawn_lat: float = None,
         spawn_lon: float = None,
         save_json_path: str = None,
+        available_flags: dict = None,
     ):
         """
         arnis-windows.exe を CLI モードで起動する。
@@ -38,19 +85,22 @@ class ArnisLauncher:
         output_dir: 既存ディレクトリ（arnis がワールドフォルダをその中に作成）
         bedrock: True → --bedrock フラグを渡す（.mcworld 互換形式）
         save_json_path: 指定すると --save-json-file でOSM生データを保存（GSI merge用）
+        available_flags: check_cli_flags() の結果。None の場合は全フラグ有効とみなす。
         """
-        # --bbox "min_lat,min_lng,max_lat,max_lng"
         bbox_str = (
             f"{bbox['min_lat']},{bbox['min_lon']},"
             f"{bbox['max_lat']},{bbox['max_lon']}"
         )
-        args = [arnis_exe, "--bbox", bbox_str, "--output-dir", output_dir]
-        if bedrock:
-            args.append("--bedrock")
-        if save_json_path:
-            args += ["--save-json-file", save_json_path]
-        if spawn_lat is not None and spawn_lon is not None:
-            args += ["--spawn-lat", str(spawn_lat), "--spawn-lng", str(spawn_lon)]
+        args = build_arnis_args(
+            arnis_exe=arnis_exe,
+            bbox=bbox_str,
+            output_dir=output_dir,
+            bedrock=bedrock,
+            save_json_path=save_json_path,
+            spawn_lat=spawn_lat,
+            spawn_lon=spawn_lon,
+            available_flags=available_flags,
+        )
 
         popen_kwargs = {
             "stdout": subprocess.PIPE,

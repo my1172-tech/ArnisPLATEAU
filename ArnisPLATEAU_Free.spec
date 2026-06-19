@@ -12,6 +12,7 @@ a = Analysis(
         ('tools\\_build_config.py', '.'),
         ('tools\\desktop_path.py', '.'),
         ('tools\\arnis_launcher.py', '.'),
+        ('tools\\arnis_version_manager.py', '.'),
         ('tools\\block_color_map.py', '.'),
         ('tools\\road_analyzer.py', '.'),
         ('tools\\osm_to_json.py', '.'),

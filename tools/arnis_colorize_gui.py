@@ -145,12 +145,19 @@ class ArnisColorizeGUI:
         self.plateau_height_enabled = tk.BooleanVar(value=True)
         self.plateau_footprint_mode = tk.StringVar(value="priority")
 
+        # PLATEAU距離フィルタ設定
+        self.plateau_dist_m = tk.IntVar(value=50)
+
         # 検証用基準点
         self.calib_rows = []
 
         # スポーン地点
         self.spawn_lat = None
         self.spawn_lon = None
+
+        # config.json から設定を復元
+        self._config_path = os.path.join(self.base_dir, "config.json")
+        self._load_config()
 
         self._build_ui()
 
@@ -366,6 +373,28 @@ class ArnisColorizeGUI:
         ).grid(row=len(fp_modes) + 1, column=0, sticky="w", pady=(2, 0))
 
         self._fp_frame = fp_frame
+
+        # マッチング距離上限スライダー
+        dist_frame = tk.Frame(frame)
+        dist_frame.pack(anchor="w", padx=(20, 0), pady=(8, 0))
+
+        tk.Label(dist_frame, text="マッチング距離上限:").grid(row=0, column=0, sticky="w")
+        self._dist_slider = tk.Scale(
+            dist_frame,
+            variable=self.plateau_dist_m,
+            from_=10, to=200, resolution=10,
+            orient="horizontal", length=180,
+            command=self._on_dist_slider_change,
+        )
+        self._dist_slider.grid(row=0, column=1, padx=(6, 0))
+        self._dist_label = tk.Label(dist_frame, text="50 m", width=6, anchor="w")
+        self._dist_label.grid(row=0, column=2, padx=(4, 0))
+        tk.Label(
+            dist_frame, text="10m                   200m",
+            fg="gray", font=("", 7),
+        ).grid(row=1, column=1, sticky="w")
+
+        self._dist_frame = dist_frame
         self._on_plateau_toggle()  # 初期状態を反映
 
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
@@ -559,7 +588,11 @@ class ArnisColorizeGUI:
                         with open(plateau_source, "r", encoding="utf-8") as f:
                             osm_data = json.load(f)
 
-                        corrections = build_height_corrections(bbox, osm_data, metadata, footprint_mode=fp_mode)
+                        corrections = build_height_corrections(
+                            bbox, osm_data, metadata,
+                            footprint_mode=fp_mode,
+                            max_dist_m=self.plateau_dist_m.get(),
+                        )
                         corrections_for_calib = corrections
                         if corrections:
                             self._log(f"PLATEAU対応建物: {len(corrections)}棟を補正します")
@@ -876,6 +909,13 @@ class ArnisColorizeGUI:
         state = "normal" if self.plateau_height_enabled.get() else "disabled"
         for rb in getattr(self, "_fp_mode_radios", []):
             rb.config(state=state)
+        if hasattr(self, "_dist_slider"):
+            self._dist_slider.config(state=state)
+
+    def _on_dist_slider_change(self, val):
+        if hasattr(self, "_dist_label"):
+            self._dist_label.config(text=f"{val} m")
+        self._save_config()
 
     def _on_custom_output_toggle(self):
         if self.custom_output_enabled.get():
@@ -988,6 +1028,27 @@ class ArnisColorizeGUI:
         size_mb = os.path.getsize(mcworld_path) / (1024 * 1024)
         self._log(f"mcworld保存完了: {mcworld_path} ({size_mb:.1f} MB)")
         return mcworld_path
+
+    def _load_config(self):
+        try:
+            if os.path.isfile(self._config_path):
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                self.plateau_dist_m.set(int(cfg.get("plateau_dist_m", 50)))
+        except Exception:
+            pass
+
+    def _save_config(self):
+        try:
+            cfg = {}
+            if os.path.isfile(self._config_path):
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            cfg["plateau_dist_m"] = self.plateau_dist_m.get()
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def _on_colorize_complete(self, world_folder: str):
         output_dir = self.custom_output_path.get() if self.custom_output_enabled.get() else None

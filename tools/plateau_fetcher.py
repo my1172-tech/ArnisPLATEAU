@@ -271,16 +271,30 @@ def _ecef_approx_to_latlon(ecef: List[float]) -> tuple:
     return lat, lon
 
 
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """2点間の距離をメートルで返す（Haversine公式）"""
+    import math
+    R = 6_371_000
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(dlon / 2) ** 2)
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
 def find_building_for_footprint(
     buildings: List[Dict],
     target_lat: float,
     target_lon: float,
     fallback_dist_deg: float = 0.001,
+    max_dist_m: float = None,
 ) -> Optional[Dict]:
     """
     案B優先: OSM建物重心がPLATEAU建物のfootprint bbox内に含まれるか判定。
     bbox内に含まれる建物がなければ、案Aフォールバックとして重心近傍（fallback_dist_deg以内）の
     最近傍建物を返す。
+    max_dist_m: 案Aフォールバックに適用するメートル距離上限（Noneの場合は制限なし）。
     """
     # 案B: bbox containment（OSM重心がPLATEAU footprint bbox内）
     for b in buildings:
@@ -293,6 +307,8 @@ def find_building_for_footprint(
     # 案A: 重心近傍フォールバック
     best = None
     best_dist = float("inf")
+    best_lat = target_lat
+    best_lon = target_lon
     for b in buildings:
         fp = b.get("footprint", [])
         if not fp:
@@ -303,6 +319,12 @@ def find_building_for_footprint(
         if dist < best_dist:
             best_dist = dist
             best = b
+            best_lat = clat
+            best_lon = clon
+
     if best and best_dist <= fallback_dist_deg ** 2:
+        if max_dist_m is not None:
+            if _haversine_m(target_lat, target_lon, best_lat, best_lon) > max_dist_m:
+                return None
         return best
     return None

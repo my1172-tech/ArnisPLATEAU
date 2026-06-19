@@ -80,6 +80,7 @@ def build_height_corrections(
     osm_data: dict,
     metadata: dict,
     footprint_mode: str = "priority",
+    max_dist_m: float = 50.0,
 ) -> List[Dict]:
     """
     osm_data（osm_raw.json または osm_merged.json の生データ）からPLATEAU高さ補正情報を構築する。
@@ -100,7 +101,7 @@ def build_height_corrections(
         print("[plateau_height_merge] PLATEAUデータ取得失敗のため高さ補正をスキップします")
         return []
 
-    print(f"[plateau_height_merge] footprint_mode={footprint_mode}")
+    print(f"[plateau_height_merge] footprint_mode={footprint_mode}, max_dist_m={max_dist_m}")
     print(f"[plateau_height_merge] OSM建物: {len(osm_buildings)}棟 / PLATEAU建物: {len(plateau_buildings)}棟")
 
     # ---- マッチング ----
@@ -112,7 +113,7 @@ def build_height_corrections(
         center_lat = sum(p[0] for p in polygon) / len(polygon)
         center_lon = sum(p[1] for p in polygon) / len(polygon)
 
-        match = find_building_for_footprint(plateau_buildings, center_lat, center_lon)
+        match = find_building_for_footprint(plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m)
         if not match or match.get("measured_height") is None:
             continue
 

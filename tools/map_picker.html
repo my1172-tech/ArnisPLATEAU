@@ -3,40 +3,91 @@
 <head>
 <meta charset="UTF-8">
 <title>ArnisPLATEAU 範囲選択</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+  crossorigin="anonymous" />
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"
+  crossorigin="anonymous" />
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+  crossorigin="anonymous"
+  onerror="document.getElementById('offline-msg').style.display='block'"></script>
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"
+  crossorigin="anonymous"></script>
 <style>
-  html, body, #map { height: 100%; margin: 0; padding: 0; }
+  html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 100px; }
+  #offline-msg {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: #FEF2F2; border: 2px solid #DC2626; border-radius: 8px;
+    padding: 24px 36px; font-size: 16px; color: #991B1B; z-index: 9999; text-align: center;
+  }
   #toolbar {
     position: absolute; top: 10px; left: 50px; z-index: 1000;
     background: white; padding: 10px 14px; border-radius: 6px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-family: sans-serif; font-size: 13px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3); font-size: 13px; min-width: 200px;
+  }
+  #toolbar h4 { margin: 0 0 6px; font-size: 13px; color: #1E3A5F; }
+  #bbox-info { color: #059669; font-size: 12px; margin-top: 4px; }
+  #spawn-info { color: #DC2626; font-size: 12px; margin-top: 2px; }
+  #spawn-btn {
+    margin-top: 8px; padding: 5px 10px; font-size: 12px;
+    background: #DC2626; color: white; border: none; border-radius: 4px; cursor: pointer;
+  }
+  #spawn-btn.active { background: #7F1D1D; }
+  #bottom-bar {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 100px;
+    background: #F9FAFB; border-top: 1px solid #E5E7EB;
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    z-index: 1000; padding: 0 20px;
   }
   #confirm-btn {
-    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-    z-index: 1000; background: #166534; color: white; border: none;
+    background: #166534; color: white; border: none;
     padding: 12px 28px; border-radius: 6px; font-size: 15px; font-weight: bold;
-    cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
   #confirm-btn:disabled { background: #9CA3AF; cursor: not-allowed; }
-  #spawn-marker-icon { background: #DC2626; }
+  #hint { font-size: 13px; color: #6B7280; }
 </style>
 </head>
 <body>
-<div id="map"></div>
-<div id="toolbar">
-  ① 矩形ツールで範囲を選択<br>
-  ② 「スポーン地点指定」を押して地図をクリック<br>
-  ③ 下の確定ボタンを押す
+
+<div id="offline-msg">
+  インターネット接続が必要です。<br>
+  地図タイルの読み込みに失敗しました。
 </div>
-<button id="confirm-btn" disabled>選択範囲を確定してアプリに戻る</button>
+
+<div id="map"></div>
+
+<div id="toolbar">
+  <h4>ArnisPLATEAU 範囲選択</h4>
+  ① ドラッグで矩形を描く<br>
+  ② 地図クリックでスポーン設置（任意）<br>
+  ③ 確定ボタンを押す
+  <div id="bbox-info">範囲: 未選択</div>
+  <div id="spawn-info">スポーン: 未設定</div>
+  <button id="spawn-btn">スポーン地点を設置</button>
+</div>
+
+<div id="bottom-bar">
+  <div id="hint">矩形ツールで範囲を選択してください</div>
+  <button id="confirm-btn" disabled>選択範囲を確定してアプリに戻る</button>
+</div>
 
 <script>
-const map = L.map('map').setView([35.6678, 139.7506], 16); // デフォルト: 虎ノ門
+if (typeof L === 'undefined') {
+  document.getElementById('offline-msg').style.display = 'block';
+}
+</script>
+<script>
+if (typeof L !== 'undefined') {
+
+const map = L.map('map').setView([35.6678, 139.7506], 15);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors'
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19,
 }).addTo(map);
 
 const drawnItems = new L.FeatureGroup();
@@ -44,8 +95,9 @@ map.addLayer(drawnItems);
 
 const drawControl = new L.Control.Draw({
   draw: {
-    polygon: false, polyline: false, circle: false, marker: false, circlemarker: false,
-    rectangle: { shapeOptions: { color: '#2563AE' } }
+    polygon: false, polyline: false, circle: false,
+    marker: false, circlemarker: false,
+    rectangle: { shapeOptions: { color: '#2563AE', weight: 2 } }
   },
   edit: { featureGroup: drawnItems, remove: true }
 });
@@ -56,38 +108,56 @@ let spawnMode = false;
 let spawnMarker = null;
 let spawnLatLng = null;
 
-map.on(L.Draw.Event.CREATED, function (e) {
+// 矩形描画モードを起動直後に自動開始
+setTimeout(() => {
+  const rectBtn = document.querySelector('.leaflet-draw-draw-rectangle');
+  if (rectBtn) rectBtn.click();
+}, 300);
+
+map.on(L.Draw.Event.CREATED, function(e) {
   drawnItems.clearLayers();
   drawnItems.addLayer(e.layer);
-  const bounds = e.layer.getBounds();
+  const b = e.layer.getBounds();
   currentBBox = {
-    min_lat: bounds.getSouth(),
-    max_lat: bounds.getNorth(),
-    min_lon: bounds.getWest(),
-    max_lon: bounds.getEast()
+    min_lat: b.getSouth(), max_lat: b.getNorth(),
+    min_lon: b.getWest(),  max_lon: b.getEast()
   };
+  document.getElementById('bbox-info').textContent =
+    `範囲: ${currentBBox.min_lat.toFixed(5)},${currentBBox.min_lon.toFixed(5)} ～ ${currentBBox.max_lat.toFixed(5)},${currentBBox.max_lon.toFixed(5)}`;
+  document.getElementById('hint').textContent = '範囲が確定しました。必要に応じてスポーン地点を設置してください。';
   updateConfirmState();
 });
 
-// スポーン地点指定ボタン（ツールバーに追加）
-const spawnBtn = document.createElement('button');
-spawnBtn.innerText = 'スポーン地点指定';
-spawnBtn.style.marginTop = '8px';
-spawnBtn.style.padding = '6px 10px';
-spawnBtn.onclick = () => { spawnMode = true; spawnBtn.innerText = '地図をクリックしてください'; };
-document.getElementById('toolbar').appendChild(document.createElement('br'));
-document.getElementById('toolbar').appendChild(spawnBtn);
+map.on(L.Draw.Event.DELETED, function() {
+  currentBBox = null;
+  document.getElementById('bbox-info').textContent = '範囲: 未選択';
+  updateConfirmState();
+});
+
+const spawnBtn = document.getElementById('spawn-btn');
+spawnBtn.addEventListener('click', function() {
+  spawnMode = !spawnMode;
+  spawnBtn.textContent = spawnMode ? '地図をクリックしてください...' : 'スポーン地点を設置';
+  spawnBtn.className = spawnMode ? 'active' : '';
+});
 
 map.on('click', function(e) {
   if (!spawnMode) return;
   spawnMode = false;
-  spawnBtn.innerText = 'スポーン地点指定';
+  spawnBtn.textContent = 'スポーン地点を設置';
+  spawnBtn.className = '';
   spawnLatLng = e.latlng;
   if (spawnMarker) map.removeLayer(spawnMarker);
   spawnMarker = L.marker(e.latlng, {
+    icon: L.divIcon({
+      className: '',
+      html: '<div style="width:12px;height:12px;background:#DC2626;border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>',
+      iconAnchor: [6, 6]
+    }),
     title: 'スポーン地点'
   }).addTo(map).bindPopup('スポーン地点').openPopup();
-  updateConfirmState();
+  document.getElementById('spawn-info').textContent =
+    `スポーン: ${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
 });
 
 function updateConfirmState() {
@@ -100,11 +170,12 @@ document.getElementById('confirm-btn').addEventListener('click', function() {
     bbox: currentBBox,
     spawn: spawnLatLng ? { lat: spawnLatLng.lat, lon: spawnLatLng.lng } : null
   };
-  // pywebview経由でPython側に結果を返す
-  if (window.pywebview) {
+  if (window.pywebview && window.pywebview.api) {
     window.pywebview.api.on_area_confirmed(JSON.stringify(result));
   }
 });
+
+} // end if L defined
 </script>
 </body>
 </html>
