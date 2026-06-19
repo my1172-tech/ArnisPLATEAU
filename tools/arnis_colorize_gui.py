@@ -130,9 +130,12 @@ class ArnisColorizeGUI:
 
         # 出力設定変数
         self.world_folder = tk.StringVar(value="")
-        self.custom_output_enabled = tk.BooleanVar(value=False)
-        self.custom_output_path = tk.StringVar(value="")
-        self.mcworld_enabled = tk.BooleanVar(value=False)
+
+        # 出力形式設定（Java / 統合版 / Luanti）
+        self.output_format = tk.StringVar(value="java")
+        self.mcworld_enabled = tk.BooleanVar(value=True)
+        self.mcworld_save_dir = tk.StringVar(value="")
+        self.luanti_output_dir = tk.StringVar(value="")
 
         # bbox入力用変数 (TASK 2)
         self.bbox_min_lat = tk.StringVar(value="")
@@ -162,13 +165,11 @@ class ArnisColorizeGUI:
         self._build_ui()
 
     def _build_ui(self):
-        # TASK 5: セクション呼び出し順序
         self._build_status_bar(self.root)
-        self._build_bbox_section(self.root)       # TASK 2
-        self._build_calibration_section(self.root)  # 検証用基準点
-        self._build_gsi_section(self.root)        # TASK 4
-        self._build_world_gen_section(self.root)  # TASK 3
-        self._build_output_section(self.root)
+        self._build_top_row(self.root)            # 生成エリア（左）＋ 出力形式（右）
+        self._build_calibration_section(self.root)
+        self._build_gsi_section(self.root)
+        self._build_world_gen_section(self.root)
 
         if PRO_MODE:
             self._build_license_section(self.root)
@@ -209,11 +210,29 @@ class ArnisColorizeGUI:
                       bg="#F59E0B", fg="white", font=("Arial", 9, "bold"),
                       relief="flat", padx=8).pack(side="right", padx=12)
 
+    # ── 横並びトップ行（生成エリア左 + 出力形式右） ─────────────────────────
+
+    def _build_top_row(self, parent):
+        container = tk.Frame(parent)
+        container.pack(fill="x", padx=10, pady=5)
+
+        self._build_bbox_section(
+            container,
+            pack_kwargs={"side": "left", "fill": "both", "expand": True, "padx": (0, 3)},
+        )
+        self._build_output_format_section(
+            container,
+            pack_kwargs={"side": "left", "fill": "y", "anchor": "n", "padx": (3, 0)},
+        )
+
     # ── bbox入力セクション (TASK 2) ───────────────────────────────────────────
 
-    def _build_bbox_section(self, parent):
+    def _build_bbox_section(self, parent, pack_kwargs=None):
         frame = tk.LabelFrame(parent, text="生成エリア選択", padx=8, pady=8)
-        frame.pack(fill="x", padx=10, pady=5)
+        if pack_kwargs is None:
+            frame.pack(fill="x", padx=10, pady=5)
+        else:
+            frame.pack(**pack_kwargs)
 
         tk.Button(
             frame, text="地図でエリアを選ぶ（ブラウザが開きます）",
@@ -453,13 +472,12 @@ class ArnisColorizeGUI:
                     f"（探したパス: {arnis_exe}）"))
                 return
 
-            # 出力ディレクトリ決定
-            if self.custom_output_enabled.get() and self.custom_output_path.get():
-                output_dir = self.custom_output_path.get()
-            else:
-                output_dir = base_dir
+            # 出力ディレクトリ（exeと同じフォルダ固定）
+            output_dir = base_dir
             os.makedirs(output_dir, exist_ok=True)
             self.output_dir = output_dir
+
+            fmt = self.output_format.get()
 
             # スポーン地点のbbox範囲内チェック
             spawn_lat = self.spawn_lat
@@ -477,20 +495,48 @@ class ArnisColorizeGUI:
             # OSM生データ保存パス（GSIマージ用）
             osm_raw_path = os.path.join(output_dir, "osm_raw.json")
 
-            # arnis を CLI モードで起動（--bbox 等を直接渡す）
-            # Java Edition 形式で生成（PLATEAU/GSI補正は Java world editor で実行）
-            # mcworld 化は補正完了後に _on_generation_complete → save_as_mcworld で行う
+            # arnis を CLI モードで起動（出力形式に応じてフラグを切り替え）
             gen_start_time = time.time()
             launcher = ArnisLauncher()
-            launcher.launch(
-                arnis_exe,
-                bbox=bbox,
-                output_dir=output_dir,
-                bedrock=False,
-                spawn_lat=spawn_lat,
-                spawn_lon=spawn_lon,
-                save_json_path=osm_raw_path,
-            )
+
+            if fmt == "luanti":
+                luanti_dir = self.luanti_output_dir.get()
+                if not luanti_dir:
+                    self.root.after(0, lambda: self._on_generation_error(
+                        "Luanti出力先を指定してください"))
+                    return
+                launcher.launch(
+                    arnis_exe,
+                    bbox=bbox,
+                    output_dir=luanti_dir,
+                    bedrock=False,
+                    luanti=True,
+                    spawn_lat=spawn_lat,
+                    spawn_lon=spawn_lon,
+                    save_json_path=osm_raw_path,
+                )
+            elif fmt == "bedrock" and not self.mcworld_enabled.get():
+                # 直接Bedrock出力（PLATEAUなし）
+                launcher.launch(
+                    arnis_exe,
+                    bbox=bbox,
+                    output_dir=output_dir,
+                    bedrock=True,
+                    spawn_lat=spawn_lat,
+                    spawn_lon=spawn_lon,
+                    save_json_path=osm_raw_path,
+                )
+            else:
+                # Java形式（またはBedrock+mcworld: Java経由でPLATEAU補正後にChunker変換）
+                launcher.launch(
+                    arnis_exe,
+                    bbox=bbox,
+                    output_dir=output_dir,
+                    bedrock=False,
+                    spawn_lat=spawn_lat,
+                    spawn_lon=spawn_lon,
+                    save_json_path=osm_raw_path,
+                )
 
             self.root.after(0, lambda: self.lbl_gen_status.config(text="ワールド生成中..."))
             ok = launcher.wait_for_complete(timeout=3600)
@@ -565,7 +611,9 @@ class ArnisColorizeGUI:
             corrections_for_calib = None
             metadata_for_calib = None
 
-            if self.plateau_height_enabled.get():
+            # PLATEAU補正はJava Editionワールド(.mca)が必要なため、直接Bedrock/Luanti出力時はスキップ
+            skip_plateau = (fmt == "luanti") or (fmt == "bedrock" and not self.mcworld_enabled.get())
+            if self.plateau_height_enabled.get() and not skip_plateau:
                 fp_mode = self.plateau_footprint_mode.get()
                 fp_mode_label = {"priority": "優先度判定", "shrink": "縮小して回避", "skip": "変更を見送る"}.get(fp_mode, fp_mode)
                 self._log(f"形状補正モード: {fp_mode}（{fp_mode_label}）")
@@ -620,37 +668,10 @@ class ArnisColorizeGUI:
             if calib_pts and corrections_for_calib is not None and metadata_for_calib:
                 self._run_calibration(corrections_for_calib, metadata_for_calib, calib_pts)
 
-            # mcworld が有効なら Chunker で Java→Bedrock 変換 → ZIP（バックグラウンドで実行）
-            if self.mcworld_enabled.get():
-                java_world = self.world_folder.get()
-                out_dir = (self.custom_output_path.get()
-                           if self.custom_output_enabled.get() else self.output_dir)
-                if java_world and os.path.isdir(java_world):
-                    try:
-                        from chunker_converter import convert_java_to_bedrock
-                        self._log("Bedrock形式に変換中（Chunker CLI）...")
-                        self.root.after(0, lambda: self.lbl_gen_status.config(
-                            text="Bedrock形式に変換中（数十秒〜数分かかります）..."))
-
-                        conv = convert_java_to_bedrock(
-                            java_world, out_dir,
-                            progress_callback=self._log,
-                        )
-                        if conv["success"]:
-                            mcworld_path = self.save_as_mcworld(conv["output_path"], out_dir)
-                            shutil.rmtree(conv["output_path"], ignore_errors=True)
-                            msg = f"mcworld保存完了: {os.path.basename(mcworld_path)}"
-                            self._log(msg)
-                            self.root.after(0, lambda m=msg: self.lbl_gen_status.config(text=m))
-                        else:
-                            self._log(f"[WARNING] Bedrock変換失敗: {conv['error']}")
-                            self._log("Java版ワールドフォルダをそのまま保存します。")
-                            self.root.after(0, lambda: self.lbl_gen_status.config(
-                                text="Bedrock変換失敗（Java版フォルダを保存済み）"))
-                    except Exception as e:
-                        self._log(f"[ERROR] Bedrock変換中に例外: {e}")
-                        self.root.after(0, lambda: self.lbl_gen_status.config(
-                            text="Bedrock変換失敗（Java版フォルダを保存済み）"))
+            # 出力形式に応じた後処理
+            if fmt == "bedrock" and self.mcworld_enabled.get():
+                save_dir = self.mcworld_save_dir.get() or self.output_dir
+                self._convert_to_mcworld(save_dir)
 
             self.root.after(0, self._on_generation_complete)
 
@@ -687,53 +708,115 @@ class ArnisColorizeGUI:
         # ステータスバーを再構築する（既存の_build_status_barを呼び直す想定）
         pass
 
-    # ── 出力設定（Free/Pro共通） ────────────────────────────────────────────
+    # ── 出力形式選択（右上パネル） ──────────────────────────────────────────
 
-    def _build_output_section(self, parent):
-        frame = tk.LabelFrame(parent, text="出力設定", padx=8, pady=8)
-        frame.pack(fill="x", padx=10, pady=5)
+    def _get_downloads_dir(self) -> str:
+        import winreg
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
+            ) as key:
+                return winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
+        except Exception:
+            from pathlib import Path
+            return str(Path.home() / "Downloads")
 
-        cb_custom = tk.Checkbutton(
-            frame,
-            text="保存先を指定する",
-            variable=self.custom_output_enabled,
-            command=self._on_custom_output_toggle
-        )
-        cb_custom.grid(row=0, column=0, sticky="w")
+    def _build_output_format_section(self, parent, pack_kwargs=None):
+        frame = tk.LabelFrame(parent, text="出力形式", padx=8, pady=8)
+        if pack_kwargs is None:
+            frame.pack(fill="x", padx=10, pady=5)
+        else:
+            frame.pack(**pack_kwargs)
 
-        self.btn_browse_output = tk.Button(
-            frame,
-            text="フォルダ選択...",
-            command=self._browse_output_dir,
-            state="disabled"
-        )
-        self.btn_browse_output.grid(row=0, column=1, padx=5)
+        tk.Radiobutton(
+            frame, text="Java版",
+            variable=self.output_format, value="java",
+            command=self._on_output_format_change,
+        ).pack(anchor="w")
 
-        self.lbl_output_path = tk.Label(
-            frame,
-            textvariable=self.custom_output_path,
-            fg="gray",
-            width=40,
-            anchor="w"
-        )
-        self.lbl_output_path.grid(row=0, column=2, sticky="w")
+        tk.Radiobutton(
+            frame, text="統合版（Bedrock）",
+            variable=self.output_format, value="bedrock",
+            command=self._on_output_format_change,
+        ).pack(anchor="w", pady=(4, 0))
 
-        self.mcworld_enabled = tk.BooleanVar(value=False)
-        cb_mcworld = tk.Checkbutton(
-            frame,
-            text="統合版（Bedrock）.mcworld として保存",
+        # 統合版サブUI
+        self._bedrock_sub = tk.Frame(frame)
+        self._bedrock_sub.pack(anchor="w", padx=(18, 0))
+
+        tk.Checkbutton(
+            self._bedrock_sub, text=".mcworld形式で保存",
             variable=self.mcworld_enabled,
-            command=self._on_mcworld_toggle
-        )
-        cb_mcworld.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+            command=self._update_mcworld_dir_visibility,
+        ).pack(anchor="w")
 
-        self.lbl_mcworld_note = tk.Label(
-            frame,
-            text="※ Bedrock世界フォルダをzip圧縮して .mcworld に変換します",
-            fg="gray",
-            font=("", 8)
-        )
-        self.lbl_mcworld_note.grid(row=2, column=0, columnspan=3, sticky="w")
+        self._mcworld_dir_frame = tk.Frame(self._bedrock_sub)
+        self._mcworld_dir_frame.pack(anchor="w", padx=(18, 0))
+        tk.Label(self._mcworld_dir_frame, text="保存先:").pack(side="left")
+        tk.Entry(
+            self._mcworld_dir_frame, textvariable=self.mcworld_save_dir, width=18,
+        ).pack(side="left", padx=(4, 0))
+        tk.Button(
+            self._mcworld_dir_frame, text="参照...",
+            command=self._on_mcworld_save_dir_browse, font=("", 8),
+        ).pack(side="left", padx=(2, 0))
+
+        tk.Radiobutton(
+            frame, text="Luanti",
+            variable=self.output_format, value="luanti",
+            command=self._on_output_format_change,
+        ).pack(anchor="w", pady=(4, 0))
+
+        # LuantiサブUI
+        self._luanti_sub = tk.Frame(frame)
+        self._luanti_sub.pack(anchor="w", padx=(18, 0))
+        tk.Label(self._luanti_sub, text="出力先:").pack(side="left")
+        tk.Entry(
+            self._luanti_sub, textvariable=self.luanti_output_dir, width=18,
+        ).pack(side="left", padx=(4, 0))
+        tk.Button(
+            self._luanti_sub, text="参照...",
+            command=self._on_luanti_dir_browse, font=("", 8),
+        ).pack(side="left", padx=(2, 0))
+
+        self._on_output_format_change()  # 初期状態を反映
+
+    def _on_output_format_change(self):
+        fmt = self.output_format.get()
+        if fmt == "java":
+            self._bedrock_sub.pack_forget()
+            self._luanti_sub.pack_forget()
+        elif fmt == "bedrock":
+            if not self._bedrock_sub.winfo_ismapped():
+                self._bedrock_sub.pack(anchor="w", padx=(18, 0))
+            self._luanti_sub.pack_forget()
+            self._update_mcworld_dir_visibility()
+        elif fmt == "luanti":
+            self._bedrock_sub.pack_forget()
+            if not self._luanti_sub.winfo_ismapped():
+                self._luanti_sub.pack(anchor="w", padx=(18, 0))
+        self._save_config()
+
+    def _update_mcworld_dir_visibility(self):
+        if self.mcworld_enabled.get():
+            if not self._mcworld_dir_frame.winfo_ismapped():
+                self._mcworld_dir_frame.pack(anchor="w", padx=(18, 0))
+        else:
+            self._mcworld_dir_frame.pack_forget()
+        self._save_config()
+
+    def _on_mcworld_save_dir_browse(self):
+        path = filedialog.askdirectory(title=".mcworld保存先フォルダを選択")
+        if path:
+            self.mcworld_save_dir.set(path)
+            self._save_config()
+
+    def _on_luanti_dir_browse(self):
+        path = filedialog.askdirectory(title="Luanti出力先フォルダを選択")
+        if path:
+            self.luanti_output_dir.set(path)
+            self._save_config()
 
     # ── Pro専用セクション ────────────────────────────────────────────────────
 
@@ -917,25 +1000,6 @@ class ArnisColorizeGUI:
             self._dist_label.config(text=f"{val} m")
         self._save_config()
 
-    def _on_custom_output_toggle(self):
-        if self.custom_output_enabled.get():
-            self.btn_browse_output.config(state="normal")
-        else:
-            self.btn_browse_output.config(state="disabled")
-            self.custom_output_path.set("")
-
-    def _browse_output_dir(self):
-        path = filedialog.askdirectory(title="保存先フォルダを選択")
-        if path:
-            self.custom_output_path.set(path)
-
-    def _on_mcworld_toggle(self):
-        if self.mcworld_enabled.get():
-            self.custom_output_enabled.set(True)
-            self.btn_browse_output.config(state="normal")
-            if not self.custom_output_path.get():
-                self.custom_output_path.set(get_desktop_path())
-
     def _browse_world(self):
         path = filedialog.askdirectory(title="ワールドフォルダを選択")
         if path:
@@ -1029,14 +1093,60 @@ class ArnisColorizeGUI:
         self._log(f"mcworld保存完了: {mcworld_path} ({size_mb:.1f} MB)")
         return mcworld_path
 
+    def _convert_to_mcworld(self, save_dir: str):
+        """
+        Java Editionワールドを Chunker CLI で Bedrock に変換し、.mcworld ZIP として保存する。
+        arnis が Java 形式で出力した後に呼び出す（PLATEAU補正済み状態を変換）。
+        """
+        java_world = self.world_folder.get()
+        if not java_world or not os.path.isdir(java_world):
+            self._log("[WARNING] Javaワールドフォルダが見つかりません。.mcworld変換をスキップします。")
+            self.root.after(0, lambda: self.lbl_gen_status.config(
+                text="mcworld変換スキップ（Javaワールドフォルダが見つかりません）"))
+            return
+        os.makedirs(save_dir, exist_ok=True)
+        try:
+            from chunker_converter import convert_java_to_bedrock
+            self._log("Bedrock形式に変換中（Chunker CLI）...")
+            self.root.after(0, lambda: self.lbl_gen_status.config(
+                text="Bedrock形式に変換中（数十秒〜数分かかります）..."))
+
+            conv = convert_java_to_bedrock(
+                java_world, save_dir,
+                progress_callback=self._log,
+            )
+            if conv["success"]:
+                mcworld_path = self.save_as_mcworld(conv["output_path"], save_dir)
+                shutil.rmtree(conv["output_path"], ignore_errors=True)
+                msg = f".mcworld保存完了: {os.path.basename(mcworld_path)}"
+                self._log(msg)
+                self.root.after(0, lambda m=msg: self.lbl_gen_status.config(text=m))
+            else:
+                self._log(f"[WARNING] Bedrock変換失敗: {conv['error']}")
+                self._log("Java版ワールドフォルダをそのまま使用します。")
+                self.root.after(0, lambda: self.lbl_gen_status.config(
+                    text="Bedrock変換失敗（Java版フォルダを保存済み）"))
+        except Exception as e:
+            self._log(f"[ERROR] Bedrock変換中に例外: {e}")
+            self.root.after(0, lambda: self.lbl_gen_status.config(
+                text="Bedrock変換失敗（Java版フォルダを保存済み）"))
+
     def _load_config(self):
         try:
             if os.path.isfile(self._config_path):
                 with open(self._config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 self.plateau_dist_m.set(int(cfg.get("plateau_dist_m", 50)))
+                self.output_format.set(cfg.get("output_format", "java"))
+                self.mcworld_enabled.set(bool(cfg.get("mcworld_enabled", True)))
+                self.mcworld_save_dir.set(
+                    cfg.get("mcworld_save_dir", self._get_downloads_dir()))
+                self.luanti_output_dir.set(cfg.get("luanti_output_dir", ""))
         except Exception:
             pass
+        # デフォルトのダウンロードフォルダを未設定時に補完
+        if not self.mcworld_save_dir.get():
+            self.mcworld_save_dir.set(self._get_downloads_dir())
 
     def _save_config(self):
         try:
@@ -1045,30 +1155,17 @@ class ArnisColorizeGUI:
                 with open(self._config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
             cfg["plateau_dist_m"] = self.plateau_dist_m.get()
+            cfg["output_format"] = self.output_format.get()
+            cfg["mcworld_enabled"] = self.mcworld_enabled.get()
+            cfg["mcworld_save_dir"] = self.mcworld_save_dir.get()
+            cfg["luanti_output_dir"] = self.luanti_output_dir.get()
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
     def _on_colorize_complete(self, world_folder: str):
-        output_dir = self.custom_output_path.get() if self.custom_output_enabled.get() else None
-
-        if self.mcworld_enabled.get():
-            if not output_dir:
-                output_dir = get_desktop_path()
-            try:
-                mcworld_path = self.save_as_mcworld(world_folder, output_dir)
-                subprocess.Popen(["explorer", f'/select,"{mcworld_path}"'])
-            except Exception as e:
-                self._log(f"[ERROR] mcworld作成失敗: {e}")
-
-        elif output_dir and os.path.exists(output_dir):
-            dst = os.path.join(output_dir, os.path.basename(world_folder))
-            try:
-                shutil.copytree(world_folder, dst, dirs_exist_ok=True)
-                self._log(f"ワールドコピー完了: {dst}")
-            except Exception as e:
-                self._log(f"[ERROR] コピー失敗: {e}")
+        self._log(f"カラー適用完了: {world_folder}")
 
 
 def main():

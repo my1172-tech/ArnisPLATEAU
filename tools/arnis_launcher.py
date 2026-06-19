@@ -20,6 +20,7 @@ def build_arnis_args(
     bbox: str,
     output_dir: str,
     bedrock: bool = False,
+    luanti: bool = False,
     save_json_path: str | None = None,
     spawn_lat: float | None = None,
     spawn_lon: float | None = None,
@@ -44,6 +45,8 @@ def build_arnis_args(
         args += ["--output-dir", output_dir]
     if bedrock and has("--bedrock"):
         args.append("--bedrock")
+    if luanti and has("--luanti"):
+        args.append("--luanti")
     if save_json_path and has("--save-json-file"):
         args += ["--save-json-file", save_json_path]
     if spawn_lat is not None and spawn_lon is not None:
@@ -74,6 +77,7 @@ class ArnisLauncher:
         bbox: dict,
         output_dir: str,
         bedrock: bool = True,
+        luanti: bool = False,
         spawn_lat: float = None,
         spawn_lon: float = None,
         save_json_path: str = None,
@@ -96,6 +100,7 @@ class ArnisLauncher:
             bbox=bbox_str,
             output_dir=output_dir,
             bedrock=bedrock,
+            luanti=luanti,
             save_json_path=save_json_path,
             spawn_lat=spawn_lat,
             spawn_lon=spawn_lon,
