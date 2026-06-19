@@ -928,11 +928,61 @@ class ArnisColorizeGUI:
         lon_var  = tk.StringVar(value=lon)
 
         row_frame = tk.Frame(self.calib_rows_frame)
-        row_frame.pack(fill="x", pady=1)
+        row_frame.pack(fill="x", pady=2)
 
-        tk.Entry(row_frame, textvariable=name_var, width=16).grid(row=0, column=0, padx=2)
-        tk.Entry(row_frame, textvariable=lat_var,  width=14).grid(row=0, column=1, padx=2)
-        tk.Entry(row_frame, textvariable=lon_var,  width=14).grid(row=0, column=2, padx=2)
+        # ── お気に入りから選択 ──────────────────────────────────────
+        fav_frame = tk.Frame(row_frame)
+        fav_frame.pack(anchor="w", pady=(0, 1))
+        tk.Label(fav_frame, text="お気に入りから選択:", font=("", 8), fg="gray").pack(side="left")
+        favs = self._load_favorites()
+        fav_var = tk.StringVar(value="（お気に入りから選択）")
+        fav_options = ["（お気に入りから選択）"] + [f["name"] for f in favs]
+
+        def on_fav_select(val, _nv=name_var, _lv=lat_var, _lov=lon_var, _fv=fav_var, _fs=favs):
+            if val.startswith("（"):
+                return
+            for f in _fs:
+                if f["name"] == val:
+                    _nv.set(f["name"])
+                    _lv.set(str(f["lat"]))
+                    _lov.set(str(f["lon"]))
+                    break
+            _fv.set("（お気に入りから選択）")
+
+        om = tk.OptionMenu(fav_frame, fav_var, *fav_options, command=on_fav_select)
+        om.config(font=("", 8), width=24)
+        om["menu"].config(font=("", 8))
+        om.pack(side="left", padx=(2, 0))
+
+        # ── 入力行 ──────────────────────────────────────────────────
+        data_frame = tk.Frame(row_frame)
+        data_frame.pack(anchor="w")
+
+        name_entry = tk.Entry(data_frame, textvariable=name_var, width=14)
+        name_entry.grid(row=0, column=0, padx=2)
+
+        def on_star(_nv=name_var, _lv=lat_var, _lov=lon_var):
+            n = _nv.get().strip()
+            if not n:
+                messagebox.showwarning("入力エラー", "建物名を入力してください")
+                return
+            try:
+                la = float(_lv.get())
+                lo = float(_lov.get())
+            except ValueError:
+                messagebox.showwarning("入力エラー", "有効な緯度・経度を入力してください")
+                return
+            self._save_favorite(n, la, lo)
+            messagebox.showinfo("保存完了", f"「{n}」をお気に入りに登録しました")
+
+        tk.Button(data_frame, text="★", command=on_star, font=("", 8), padx=2, pady=0).grid(
+            row=0, column=1, padx=1)
+
+        lat_entry = tk.Entry(data_frame, textvariable=lat_var, width=14)
+        lat_entry.grid(row=0, column=2, padx=2)
+
+        lon_entry = tk.Entry(data_frame, textvariable=lon_var, width=14)
+        lon_entry.grid(row=0, column=3, padx=2)
 
         row_data = {"name": name_var, "lat": lat_var, "lon": lon_var, "frame": row_frame}
         self.calib_rows.append(row_data)
@@ -940,9 +990,14 @@ class ArnisColorizeGUI:
         def on_delete(rd=row_data):
             self._remove_calibration_row(rd)
 
-        tk.Button(row_frame, text="削除", command=on_delete, font=("", 8)).grid(
-            row=0, column=3, padx=2,
-        )
+        tk.Button(data_frame, text="削除", command=on_delete, font=("", 8)).grid(
+            row=0, column=4, padx=2)
+
+        # ── カンマ区切りペースト対応 ────────────────────────────────
+        paste_handler = self._make_paste_handler(lat_var, lon_var)
+        lat_entry.bind("<<Paste>>", paste_handler)
+        lon_entry.bind("<<Paste>>", paste_handler)
+
         self._on_calibration_changed()
 
     def _remove_calibration_row(self, row_data: dict):
@@ -985,6 +1040,69 @@ class ArnisColorizeGUI:
         """キャリブレーション結果をログに出力する"""
         from calibration import run_calibration
         run_calibration(corrections, metadata, calib_points, log_fn=self._log)
+
+    # ── お気に入り管理 ─────────────────────────────────────────────────────────
+
+    def _get_favorites_path(self) -> str:
+        return os.path.join(self.base_dir, "favorites.json")
+
+    def _load_favorites(self) -> list:
+        defaults = [
+            {"name": "大同生命霞が関ビル",       "lat": 35.670517,           "lon": 139.751560},
+            {"name": "虎ノ門ヒルズ森タワー",     "lat": 35.66689741570721,   "lon": 139.749623094962},
+            {"name": "西新橋スクエア",           "lat": 35.66934286571219,   "lon": 139.75487694678765},
+        ]
+        path = self._get_favorites_path()
+        if not os.path.isfile(path):
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(defaults, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            return defaults
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list) and data:
+                return data
+        except Exception:
+            pass
+        return defaults
+
+    def _save_favorite(self, name: str, lat: float, lon: float):
+        favs = self._load_favorites()
+        for fav in favs:
+            if fav["name"] == name:
+                fav["lat"] = lat
+                fav["lon"] = lon
+                break
+        else:
+            favs.append({"name": name, "lat": lat, "lon": lon})
+        path = self._get_favorites_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(favs, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            messagebox.showerror("エラー", f"お気に入りの保存に失敗しました: {e}")
+
+    def _make_paste_handler(self, lat_var: tk.StringVar, lon_var: tk.StringVar):
+        """緯度経度欄へのカンマ区切りペースト（例: '35.670517, 139.751560'）を自動分割するハンドラを返す"""
+        def handler(event):
+            def check():
+                val = event.widget.get()
+                if "," in val:
+                    parts = val.split(",", 1)
+                    try:
+                        lat_s = parts[0].strip()
+                        lon_s = parts[1].strip()
+                        float(lat_s)
+                        float(lon_s)
+                        lat_var.set(lat_s)
+                        lon_var.set(lon_s)
+                    except ValueError:
+                        pass
+            event.widget.after_idle(check)
+        return handler
 
     # ── コールバック ──────────────────────────────────────────────────────────
 
