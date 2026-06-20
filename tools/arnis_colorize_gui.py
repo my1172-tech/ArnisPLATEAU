@@ -175,6 +175,7 @@ class ArnisColorizeGUI:
 
         # 建物詳細JSON（BuildingHeightEditor から受け取る）
         self.building_details: list = []
+        self.calibration_data: dict = {}
 
         # 検証用基準点
         self.calib_rows = []
@@ -587,6 +588,7 @@ class ArnisColorizeGUI:
         )
         self.root.wait_window(editor.dialog)
         self.building_details = getattr(editor, "building_details", [])
+        self.calibration_data = getattr(editor, "calibration_data", {})
 
     def _on_generate_click(self):
         bbox = self._get_current_bbox()
@@ -764,6 +766,12 @@ class ArnisColorizeGUI:
 
             corrections_for_calib = None
             metadata_for_calib = None
+            _calib = getattr(self, "calibration_data", {})
+            if _calib:
+                _calib_pts = _calib.get("points", {})
+                if len(_calib_pts) >= 4:
+                    corrections_for_calib = _calib.get("transform_matrix", [])
+                    metadata_for_calib = _calib_pts
 
             # PLATEAU高さ事前マージ（2段階生成）
             # 直接Bedrock/Luanti出力時はスキップ（Java Edition .mca が不要な形式）

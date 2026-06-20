@@ -144,6 +144,7 @@ class BuildingHeightEditor:
         self.auto_fetch_var = tk.BooleanVar(value=False)
         self.building_type_var = tk.StringVar(value=BUILDING_TYPE_OPTIONS[0][0])
         self.building_details = []
+        self.calibration_data: dict = {}
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("建物高さ調整")
@@ -577,11 +578,17 @@ class BuildingHeightEditor:
                 )
                 return
             self.building_details = buildings
+            self.calibration_data = data.get("calibration", {})
             count = len(buildings)
+            calib_suffix = ""
+            if self.calibration_data and len(self.calibration_data.get("points", {})) >= 4:
+                calib_suffix = " ・キャリブレーションあり"
             names = "、".join(b.get("name", "不明") for b in buildings[:5])
             if count > 5:
                 names += f" 他{count - 5}棟"
-            self.bd_status_label.config(text=f"読み込み済み: {count}棟", fg="green")
+            self.bd_status_label.config(
+                text=f"読み込み済み: {count}棟{calib_suffix}", fg="green"
+            )
             self.bd_names_label.config(text=names)
         except Exception as e:
             messagebox.showerror("読み込みエラー", f"JSONの読み込みに失敗しました:\n{e}")
