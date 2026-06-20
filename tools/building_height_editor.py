@@ -143,6 +143,7 @@ class BuildingHeightEditor:
         self._filter_var = tk.StringVar(value="全て")
         self.auto_fetch_var = tk.BooleanVar(value=False)
         self.building_type_var = tk.StringVar(value=BUILDING_TYPE_OPTIONS[0][0])
+        self.building_details = []
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("建物高さ調整")
@@ -173,6 +174,25 @@ class BuildingHeightEditor:
             variable=self.auto_fetch_var,
             font=("", 9),
         ).pack(anchor="w", padx=8, pady=(0, 4))
+
+        # 建物詳細JSON取り込みボタン
+        frame_bd = tk.Frame(self.dialog)
+        frame_bd.pack(anchor="w", padx=8, pady=(0, 2), fill="x")
+        tk.Button(
+            frame_bd,
+            text="📂 建物詳細JSON取り込み",
+            command=self._load_building_details_dialog,
+            font=("", 9),
+        ).pack(side="left")
+        self.bd_status_label = tk.Label(
+            frame_bd, text="読み込みなし", fg="gray", font=("", 9)
+        )
+        self.bd_status_label.pack(side="left", padx=8)
+        self.bd_names_label = tk.Label(
+            self.dialog, text="", fg="gray",
+            wraplength=600, justify="left", font=("", 8)
+        )
+        self.bd_names_label.pack(anchor="w", padx=8)
 
         # フィルタ行
         filter_frame = tk.Frame(self.dialog)
@@ -527,6 +547,44 @@ class BuildingHeightEditor:
                 bg="#eff6ff",
                 command=lambda v=adopt_var, h=web_h: v.set(f"{h:.0f}")
             ).pack(side="left", padx=2)
+
+    def _load_building_details_dialog(self):
+        """ファイル選択ダイアログで building_details.json を読み込む"""
+        from tkinter import filedialog
+        import sys
+
+        initial = (
+            os.path.dirname(sys.executable)
+            if getattr(sys, "frozen", False)
+            else os.path.expanduser("~\\Desktop")
+        )
+        path = filedialog.askopenfilename(
+            title="建物詳細JSONを選択",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=initial,
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            buildings = data.get("buildings", [])
+            if not buildings:
+                messagebox.showwarning(
+                    "読み込み失敗",
+                    "buildings キーが見つかりません。\nJSON形式を確認してください。"
+                )
+                return
+            self.building_details = buildings
+            count = len(buildings)
+            names = "、".join(b.get("name", "不明") for b in buildings[:5])
+            if count > 5:
+                names += f" 他{count - 5}棟"
+            self.bd_status_label.config(text=f"読み込み済み: {count}棟", fg="green")
+            self.bd_names_label.config(text=names)
+        except Exception as e:
+            messagebox.showerror("読み込みエラー", f"JSONの読み込みに失敗しました:\n{e}")
 
     def _apply_filter(self):
         self._render_rows()

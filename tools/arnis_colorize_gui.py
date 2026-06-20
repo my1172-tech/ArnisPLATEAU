@@ -173,6 +173,9 @@ class ArnisColorizeGUI:
         self.sv_api_key_var = tk.StringVar(value="")
         self.sv_limit_var = tk.IntVar(value=50)
 
+        # 建物詳細JSON（BuildingHeightEditor から受け取る）
+        self.building_details: list = []
+
         # 検証用基準点
         self.calib_rows = []
 
@@ -583,6 +586,7 @@ class ArnisColorizeGUI:
             save_path=self.height_overrides_path,
         )
         self.root.wait_window(editor.dialog)
+        self.building_details = getattr(editor, "building_details", [])
 
     def _on_generate_click(self):
         bbox = self._get_current_bbox()
@@ -812,6 +816,7 @@ class ArnisColorizeGUI:
                             apply_building_color=apply_building_color,
                             streetview_api_key=sv_api_key,
                             sv_limit=self.sv_limit_var.get(),
+                            building_details=self.building_details,
                         )
 
                         with open(osm_plateau_path, "w", encoding="utf-8") as f:

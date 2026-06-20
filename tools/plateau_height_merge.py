@@ -230,6 +230,7 @@ def build_osm_height_patch(
     apply_building_color: bool = False,
     streetview_api_key: str = "",
     sv_limit: int = 50,
+    building_details: list = None,
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
@@ -300,6 +301,17 @@ def build_osm_height_patch(
         polygon = osm_b.get("polygon", [])
         center_lat = sum(p[0] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
         center_lon = sum(p[1] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
+
+        # 優先0: building_details.json（座標マッチング・最高優先）
+        if building_details and center_lat is not None:
+            target_bd = elem_by_id.get(osm_id)
+            if target_bd is not None:
+                from building_details_loader import find_building_detail, apply_building_detail
+                detail = find_building_detail(building_details, center_lat, center_lon)
+                if detail:
+                    apply_building_detail(target_bd, detail)
+                    patch_count += 1
+                    continue
 
         height = None
         matched_override = None
