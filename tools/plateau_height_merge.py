@@ -227,6 +227,9 @@ def build_osm_height_patch(
     height_overrides: list = None,
     road_color: str = "",
     apply_roof_color: bool = False,
+    apply_building_color: bool = False,
+    streetview_api_key: str = "",
+    sv_limit: int = 50,
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
@@ -282,6 +285,10 @@ def build_osm_height_patch(
         for e in patched.get("elements", [])
         if e.get("type") == "node"
     } if apply_roof_color else {}
+
+    # Street View 壁色: 関数スコープキャッシュと取得済み件数
+    _sv_cache: dict = {}
+    sv_count = 0
 
     patch_count = 0
     for osm_b in osm_buildings:
@@ -358,8 +365,27 @@ def build_osm_height_patch(
         if building_type:
             target_elem["tags"]["building"] = building_type
 
-        # 屋根色: PLATEAU非マッチ建物のみ衛星画像から取得（apply_roof_color=True時）
-        if apply_roof_color and not has_priority_height:
+        # Street View 壁色取得（上限棟数以内・全建物対象）
+        if apply_building_color and streetview_api_key and sv_count < sv_limit and center_lat is not None:
+            cache_key = f"{round(center_lat, 4)}_{round(center_lon, 4)}"
+            if cache_key not in _sv_cache:
+                try:
+                    from streetview_building_color import get_building_colors_from_streetview
+                    _sv_cache[cache_key] = get_building_colors_from_streetview(
+                        center_lat, center_lon, streetview_api_key
+                    )
+                except Exception:
+                    _sv_cache[cache_key] = None
+            sv_result = _sv_cache.get(cache_key)
+            if sv_result:
+                target_elem["tags"]["building:colour"] = sv_result["building_colour"]
+                target_elem["tags"]["roof:colour"] = sv_result["roof_colour"]
+                if not building_type:  # 手動 building_type が指定されている場合は上書きしない
+                    target_elem["tags"]["building"] = sv_result["building_type"]
+                sv_count += 1
+
+        # 屋根色: Street View未取得の建物のみ衛星画像から取得
+        if apply_roof_color and not has_priority_height and "roof:colour" not in target_elem.get("tags", {}):
             try:
                 from satellite_roof_color import get_roof_color_from_polygon
                 way_nodes = target_elem.get("nodes", [])

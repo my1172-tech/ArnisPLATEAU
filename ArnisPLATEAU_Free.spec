@@ -30,6 +30,7 @@ a = Analysis(
         ('tools\\chunker_converter.py', '.'),
         ('tools\\building_height_editor.py', '.'),
         ('tools\\satellite_roof_color.py', '.'),
+        ('tools\\streetview_building_color.py', '.'),
         ('tools\\chunker-cli', 'chunker-cli'),
     ],
     hiddenimports=[

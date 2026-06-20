@@ -168,6 +168,11 @@ class ArnisColorizeGUI:
         # 屋根色自動取得設定（デフォルトOFF）
         self.roof_color_var = tk.BooleanVar(value=False)
 
+        # Street View 壁色取得設定
+        self.apply_building_color_var = tk.BooleanVar(value=False)
+        self.sv_api_key_var = tk.StringVar(value="")
+        self.sv_limit_var = tk.IntVar(value=50)
+
         # 検証用基準点
         self.calib_rows = []
 
@@ -494,6 +499,40 @@ class ArnisColorizeGUI:
             fg="gray", font=("", 8),
         ).pack(anchor="w")
 
+        # Street View 壁色取得セクション
+        frame_sv = tk.LabelFrame(frame, text="Street View 壁色取得", padx=8, pady=4)
+        frame_sv.pack(fill="x", pady=(8, 0))
+
+        tk.Label(frame_sv, text="Google APIキー:", font=("", 8)).pack(anchor="w")
+        tk.Entry(frame_sv, textvariable=self.sv_api_key_var,
+                 show="*", width=40, font=("", 8)).pack(anchor="w", pady=(0, 4))
+
+        tk.Checkbutton(
+            frame_sv,
+            text="Street View から壁色を自動取得（$0.007/棟）",
+            variable=self.apply_building_color_var,
+            font=("", 9),
+        ).pack(anchor="w")
+        tk.Label(
+            frame_sv,
+            text="※ PLATEAU非マッチ建物のみ対象。APIキー未入力時は無効",
+            fg="gray", font=("", 8),
+        ).pack(anchor="w")
+
+        frame_sv_limit = tk.Frame(frame_sv)
+        frame_sv_limit.pack(anchor="w", pady=(4, 0))
+        tk.Label(frame_sv_limit, text="取得上限:", font=("", 8)).pack(side="left")
+        tk.Spinbox(
+            frame_sv_limit, from_=1, to=9999, increment=10,
+            textvariable=self.sv_limit_var, width=6, font=("", 8),
+        ).pack(side="left", padx=4)
+        tk.Label(frame_sv_limit, text="棟", font=("", 8)).pack(side="left")
+
+        self._sv_cost_label = tk.Label(frame_sv, text="", fg="#d97706", font=("", 8))
+        self._sv_cost_label.pack(anchor="w")
+        self.sv_limit_var.trace_add("write", self._update_sv_cost)
+        self._update_sv_cost()
+
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
 
     def _build_world_gen_section(self, parent):
@@ -758,6 +797,10 @@ class ArnisColorizeGUI:
                         apply_roof_color = self.roof_color_var.get()
                         if apply_roof_color:
                             self._log("屋根色取得: 国土地理院シームレス衛星写真を使用")
+                        apply_building_color = self.apply_building_color_var.get()
+                        sv_api_key = self.sv_api_key_var.get().strip()
+                        if apply_building_color and sv_api_key:
+                            self._log(f"壁色取得: Street View API（上限 {self.sv_limit_var.get()}棟）")
                         patched_osm, patch_count = build_osm_height_patch(
                             bbox=bbox,
                             osm_data=osm_for_patch,
@@ -766,6 +809,9 @@ class ArnisColorizeGUI:
                             height_overrides=height_overrides,
                             road_color=self.road_color_var.get(),
                             apply_roof_color=apply_roof_color,
+                            apply_building_color=apply_building_color,
+                            streetview_api_key=sv_api_key,
+                            sv_limit=self.sv_limit_var.get(),
                         )
 
                         with open(osm_plateau_path, "w", encoding="utf-8") as f:
@@ -1269,6 +1315,14 @@ class ArnisColorizeGUI:
 
     # ── コールバック ──────────────────────────────────────────────────────────
 
+    def _update_sv_cost(self, *args):
+        try:
+            limit = self.sv_limit_var.get()
+            cost = limit * 0.007
+            self._sv_cost_label.config(text=f"推定コスト: 約 ${cost:.2f}")
+        except Exception:
+            pass
+
     def _on_plateau_toggle(self):
         state = "normal" if self.plateau_height_enabled.get() else "disabled"
         for rb in getattr(self, "_fp_mode_radios", []):
@@ -1425,6 +1479,9 @@ class ArnisColorizeGUI:
                 self.luanti_output_dir.set(cfg.get("luanti_output_dir", ""))
                 self.road_color_var.set(cfg.get("road_color", ""))
                 self.roof_color_var.set(bool(cfg.get("apply_roof_color", False)))
+                self.sv_api_key_var.set(cfg.get("streetview_api_key", ""))
+                self.apply_building_color_var.set(bool(cfg.get("apply_building_color", False)))
+                self.sv_limit_var.set(int(cfg.get("sv_limit", 50)))
         except Exception:
             pass
         # デフォルトのダウンロードフォルダを未設定時に補完
@@ -1444,6 +1501,9 @@ class ArnisColorizeGUI:
             cfg["luanti_output_dir"] = self.luanti_output_dir.get()
             cfg["road_color"] = self.road_color_var.get()
             cfg["apply_roof_color"] = self.roof_color_var.get()
+            cfg["streetview_api_key"] = self.sv_api_key_var.get()
+            cfg["apply_building_color"] = self.apply_building_color_var.get()
+            cfg["sv_limit"] = self.sv_limit_var.get()
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:
