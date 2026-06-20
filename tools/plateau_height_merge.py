@@ -266,34 +266,36 @@ def build_osm_height_patch(
         center_lat = sum(p[0] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
         center_lon = sum(p[1] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
 
-        # 優先1: osm_id 一致の override
-        if osm_id in overrides_by_id:
+        height = None
+
+        # 優先1: 手動座標入力（"manual_..."id）— 近傍50m以内で最近傍にマッチ（最高優先）
+        # PLATEAUデータと同じ建物に重複登録された場合でも手動値が勝つ
+        if manual_overrides and center_lat is not None:
+            best_dist = float("inf")
+            best_override = None
+            for o in manual_overrides:
+                if o.get("lat") is None or o.get("lon") is None:
+                    continue
+                dist = _haversine_m(center_lat, center_lon, o["lat"], o["lon"])
+                if dist <= 50.0 and dist < best_dist:
+                    best_dist = dist
+                    best_override = o
+            if best_override:
+                height = best_override.get("height_m")
+
+        # 優先2: osm_id 一致の override（plateau または整数idの手動登録）
+        if height is None and osm_id in overrides_by_id:
             height = overrides_by_id[osm_id].get("height_m")
-        else:
-            height = None
-            # 優先2: 手動追加行 — lat/lon 近傍（50m以内）でマッチング
-            if manual_overrides and center_lat is not None:
-                best_dist = float("inf")
-                best_override = None
-                for o in manual_overrides:
-                    if o.get("lat") is None or o.get("lon") is None:
-                        continue
-                    dist = _haversine_m(center_lat, center_lon, o["lat"], o["lon"])
-                    if dist <= 50.0 and dist < best_dist:
-                        best_dist = dist
-                        best_override = o
-                if best_override:
-                    height = best_override.get("height_m")
 
-            # 優先3: PLATEAUマッチング
-            if height is None and plateau_buildings and center_lat is not None:
-                match = find_building_for_footprint(
-                    plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
-                )
-                height = match.get("measured_height") if match else None
+        # 優先3: PLATEAUマッチング
+        if height is None and plateau_buildings and center_lat is not None:
+            match = find_building_for_footprint(
+                plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
+            )
+            height = match.get("measured_height") if match else None
 
-            if height is None:
-                continue
+        if height is None:
+            continue
 
         for elem in patched.get("elements", []):
             if elem.get("id") == osm_id:
