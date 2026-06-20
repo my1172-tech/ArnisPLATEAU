@@ -151,14 +151,17 @@ class BuildingHeightEditor:
         self.dialog.grab_set()
 
         self._build_dialog()
-        threading.Thread(target=self._load_buildings, daemon=True).start()
+        if self.auto_fetch_var.get():
+            threading.Thread(target=self._load_buildings, daemon=True).start()
+        else:
+            threading.Thread(target=self._load_from_overrides_only, daemon=True).start()
 
     # ── UI構築 ────────────────────────────────────────────────────────────
 
     def _build_dialog(self):
         # ステータス
         self.lbl_status = tk.Label(
-            self.dialog, text="建物データを取得中（Overpass API）...",
+            self.dialog, text="読み込み中...",
             anchor="w", font=("", 9)
         )
         self.lbl_status.pack(fill="x", padx=8, pady=(6, 2))
@@ -320,6 +323,52 @@ class BuildingHeightEditor:
         plateau_count = sum(1 for r in rows if r["plateau_height"] is not None)
         self.dialog.after(0, lambda: self._on_buildings_loaded(plateau_count))
 
+    def _load_from_overrides_only(self):
+        """自動取得OFF: height_overrides.json の既存データのみ行に変換して表示する。
+        Overpass / PLATEAU / Web へのネットワーク通信は一切行わない。"""
+        rows = []
+        if self.save_path and os.path.isfile(self.save_path):
+            try:
+                with open(self.save_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for o in data.get("overrides", []):
+                    osm_id = o.get("osm_id")
+                    if osm_id is None:
+                        continue
+                    height_m = o.get("height_m")
+                    row = {
+                        "osm_id": osm_id,
+                        "name": o.get("name", f"建物({osm_id})"),
+                        "osm_height": None,
+                        "plateau_height": None,
+                        "web_height": None,
+                        "adopt_height": height_m,
+                        "lat": o.get("lat"),
+                        "lon": o.get("lon"),
+                        "building_levels": None,
+                        "building_type": o.get("building_type", ""),
+                    }
+                    # 採用値を事前セット（再描画時も _adopt_vars が初期化されるよう）
+                    if osm_id not in self._adopt_vars:
+                        self._adopt_vars[osm_id] = tk.StringVar(
+                            value=f"{height_m:.0f}" if height_m is not None else ""
+                        )
+                    rows.append(row)
+            except Exception as e:
+                print(f"[BuildingHeightEditor] height_overrides.json 読み込みエラー: {e}")
+
+        self.rows = rows
+        try:
+            self.dialog.after(0, lambda: self._on_overrides_loaded(len(rows)))
+        except Exception:
+            pass
+
+    def _on_overrides_loaded(self, count: int):
+        self.lbl_status.config(
+            text=f"既存の登録: {count}棟（自動取得OFF — チェックボックスをONにすると取得を実行）"
+        )
+        self._render_rows()
+
     def _fetch_buildings_from_overpass(self, bbox: dict) -> list:
         try:
             query = (
@@ -424,14 +473,23 @@ class BuildingHeightEditor:
         tk.Label(frame, text=osm_text, bg=bg, width=8, anchor="w", font=("", 8)).pack(side="left", padx=2)
 
         # PLATEAU高さ
-        p_text = f"{row['plateau_height']:.0f}m" if row["plateau_height"] is not None else "取得失敗"
+        if row["plateau_height"] is not None:
+            p_text = f"{row['plateau_height']:.0f}m"
+        elif not self.auto_fetch_var.get():
+            p_text = "--"
+        else:
+            p_text = "取得失敗"
         tk.Label(frame, text=p_text, bg=bg, width=9, anchor="w", font=("", 8)).pack(side="left", padx=2)
 
-        # Web高さ（状態に応じて「取得中...」「Xm」「🔍推測」を切り替え）
+        # Web高さ（状態に応じて「--」「取得中...」「Xm」「🔍推測」を切り替え）
         web_h = row.get("web_height")
         is_done = osm_id in self._web_fetch_done
 
-        if web_h is not None:
+        if not self.auto_fetch_var.get():
+            web_lbl = tk.Label(
+                frame, text="--", bg=bg, width=9, anchor="w", font=("", 8), fg="#9ca3af"
+            )
+        elif web_h is not None:
             is_diff = self._is_significant_diff(row["plateau_height"], web_h)
             web_bg = "#fca5a5" if is_diff else bg
             web_lbl = tk.Label(
