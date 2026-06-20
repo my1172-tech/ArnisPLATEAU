@@ -300,6 +300,10 @@ def build_osm_height_patch(
                 if "tags" not in elem:
                     elem["tags"] = {}
                 elem["tags"]["height"] = str(round(height, 1))
+                # arnisが building:levels 等を優先してheightを無視するのを防ぐ
+                for _k in ("building:levels", "building:levels:underground",
+                           "roof:height", "roof:levels", "min_height"):
+                    elem["tags"].pop(_k, None)
                 patch_count += 1
                 break
 

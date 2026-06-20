@@ -50,7 +50,12 @@ def build_arnis_args(
         args.append("--luanti")
     if save_json_path and has("--save-json-file"):
         args += ["--save-json-file", save_json_path]
-    if osm_file and os.path.exists(osm_file) and has("--file"):
+    if osm_file:
+        if not os.path.exists(osm_file):
+            raise FileNotFoundError(f"--file 指定のOSM JSONが存在しません: {osm_file}")
+        if available_flags is not None and not available_flags.get("--file", False):
+            print("[arnis_launcher] WARNING: available_flags に --file が未登録。"
+                  "検出漏れの可能性があるため強制付与します")
         args += ["--file", osm_file]
     if spawn_lat is not None and spawn_lon is not None:
         if has("--spawn-lat"):
@@ -111,6 +116,7 @@ class ArnisLauncher:
             spawn_lon=spawn_lon,
             available_flags=available_flags,
         )
+        print("[arnis_launcher] STAGE CMD:", " ".join(args))
 
         popen_kwargs = {
             "stdout": subprocess.PIPE,

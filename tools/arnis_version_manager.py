@@ -132,9 +132,9 @@ class ArnisVersionManager:
         返却: {"--bbox": True, "--terrain": True, ...}
         """
         known_flags = [
-            "--bbox", "--path", "--output-dir", "--bedrock", "--terrain",
+            "--bbox", "--path", "--output-dir", "--bedrock", "--luanti", "--terrain",
             "--scale", "--ground-level", "--spawn-lat", "--spawn-lng",
-            "--save-json-file", "--timeout",
+            "--save-json-file", "--file", "--timeout",
         ]
         result = {flag: False for flag in known_flags}
         try:
