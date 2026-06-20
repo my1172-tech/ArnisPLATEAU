@@ -16,6 +16,12 @@ from osm_building_extractor import extract_buildings_with_polygons
 
 FOOTPRINT_MODES = ("skip", "shrink", "priority")
 
+ROAD_COLOR_MAP = {
+    "black":      "black_concrete",
+    "gray":       "gray_concrete",
+    "light_gray": "light_gray_concrete",
+}
+
 
 def latlon_to_mc(lat: float, lon: float, metadata: dict) -> tuple:
     """metadata.jsonの範囲情報から緯度経度をMinecraft座標(x,z)に線形変換する。
@@ -219,6 +225,7 @@ def build_osm_height_patch(
     footprint_mode: str = "priority",
     max_dist_m: float = 50.0,
     height_overrides: list = None,
+    road_color: str = "",
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
@@ -279,6 +286,7 @@ def build_osm_height_patch(
         center_lon = sum(p[1] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
 
         height = None
+        matched_override = None
 
         # 優先1: 手動座標入力（"manual_..."id）— 近傍50m以内の最近傍を採用（最高優先）
         if manual_coord_overrides and center_lat is not None:
@@ -293,14 +301,17 @@ def build_osm_height_patch(
                     best_override = o
             if best_override:
                 height = best_override.get("height_m")
+                matched_override = best_override
 
         # 優先2: source=manual かつ整数 osm_id（テーブルのチェック選択）
         if height is None and osm_id in manual_id_overrides:
-            height = manual_id_overrides[osm_id].get("height_m")
+            matched_override = manual_id_overrides[osm_id]
+            height = matched_override.get("height_m")
 
         # 優先3: source=plateau かつ整数 osm_id
         if height is None and osm_id in plateau_id_overrides:
-            height = plateau_id_overrides[osm_id].get("height_m")
+            matched_override = plateau_id_overrides[osm_id]
+            height = matched_override.get("height_m")
 
         # 優先4: PLATEAU APIマッチング
         if height is None and plateau_buildings and center_lat is not None:
@@ -331,7 +342,22 @@ def build_osm_height_patch(
         for _k in ("building:levels", "building:levels:underground",
                    "roof:height", "roof:levels", "min_height"):
             target_elem["tags"].pop(_k, None)
+        # building_type 明示指定（手動追加時のビル外観選択）
+        building_type = matched_override.get("building_type", "") if matched_override else ""
+        if building_type:
+            target_elem["tags"]["building"] = building_type
         patch_count += 1
 
     print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override/levels高さを設定")
+
+    # 道路色の一括適用
+    if road_color and road_color in ROAD_COLOR_MAP:
+        surface_val = ROAD_COLOR_MAP[road_color]
+        road_count = 0
+        for elem in patched.get("elements", []):
+            if elem.get("type") == "way" and "highway" in elem.get("tags", {}):
+                elem["tags"]["surface"] = surface_val
+                road_count += 1
+        print(f"[plateau_height_merge] 道路色: {road_count}件のhighway wayにsurface={surface_val}を設定")
+
     return patched, patch_count

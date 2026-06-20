@@ -9,7 +9,7 @@ import os
 import re
 import threading
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import urllib.parse
 import urllib.request
 
@@ -119,6 +119,14 @@ def is_unnamed_building(name: str) -> bool:
 
 FILTER_OPTIONS = {"全て": 0, "10m以上": 10, "50m以上": 50, "100m以上": 100}
 
+BUILDING_TYPE_OPTIONS = [
+    ("自動（高さ閾値で判定）", ""),
+    ("オフィス（灰色・モダン）",  "office"),
+    ("マンション（レンガ系）",    "apartments"),
+    ("商業（ガラス張り）",        "commercial"),
+    ("工業（倉庫風）",            "industrial"),
+]
+
 
 class BuildingHeightEditor:
     """bbox内の建物高さを確認・調整するモーダルダイアログ。"""
@@ -134,6 +142,7 @@ class BuildingHeightEditor:
         self._web_fetch_done = set()  # Webフェッチ完了済み osm_id のセット
         self._filter_var = tk.StringVar(value="全て")
         self.auto_fetch_var = tk.BooleanVar(value=False)
+        self.building_type_var = tk.StringVar(value=BUILDING_TYPE_OPTIONS[0][0])
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("建物高さ調整")
@@ -253,6 +262,20 @@ class BuildingHeightEditor:
             row2, text="追加", command=self._on_add_manual,
             font=("", 8), padx=6, pady=2
         ).pack(side="left")
+
+        row3 = tk.Frame(frame)
+        row3.pack(fill="x", pady=(2, 0))
+        tk.Label(row3, text="ビル外観:", width=12, anchor="w", font=("", 8)).pack(side="left")
+        type_cb = ttk.Combobox(
+            row3,
+            textvariable=self.building_type_var,
+            values=[label for label, _ in BUILDING_TYPE_OPTIONS],
+            state="readonly",
+            width=24,
+            font=("", 8),
+        )
+        type_cb.current(0)
+        type_cb.pack(side="left", padx=4)
 
     # ── データ取得（バックグラウンド） ───────────────────────────────────
 
@@ -583,6 +606,11 @@ class BuildingHeightEditor:
             except ValueError:
                 pass
 
+        selected_label = self.building_type_var.get()
+        building_type = next(
+            (tag for label, tag in BUILDING_TYPE_OPTIONS if label == selected_label), ""
+        )
+
         osm_id = f"manual_{lat:.5f}_{lon:.5f}"
         row = {
             "osm_id": osm_id,
@@ -594,6 +622,7 @@ class BuildingHeightEditor:
             "web_height": None,
             "adopt_height": height,
             "building_levels": None,
+            "building_type": building_type,
         }
         # 手動追加行はWebフェッチ対象外として即 done にマーク
         self._web_fetch_done.add(osm_id)
@@ -627,14 +656,17 @@ class BuildingHeightEditor:
             elif row.get("plateau_height") is not None and abs(h - row["plateau_height"]) < 0.5:
                 source = "plateau"
 
-            overrides.append({
+            entry = {
                 "osm_id": osm_id,
                 "name": row["name"],
                 "lat": row["lat"],
                 "lon": row["lon"],
                 "height_m": h,
                 "source": source,
-            })
+            }
+            if row.get("building_type"):
+                entry["building_type"] = row["building_type"]
+            overrides.append(entry)
 
         if self.save_path:
             try:

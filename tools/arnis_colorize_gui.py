@@ -48,6 +48,13 @@ if PRO_MODE:
         MAX_TRIAL_RADIUS_M = 300
 
 
+ROAD_COLOR_OPTIONS = [
+    ("デフォルト（arnis標準）", ""),
+    ("黒",       "black"),
+    ("濃い灰色", "gray"),
+    ("薄い灰色", "light_gray"),
+]
+
 # v2.9.0以降のログパターン
 COMPLETION_PATTERNS = [
     "Generation complete",
@@ -154,6 +161,9 @@ class ArnisColorizeGUI:
 
         # PLATEAU距離フィルタ設定
         self.plateau_dist_m = tk.IntVar(value=50)
+
+        # 道路色設定
+        self.road_color_var = tk.StringVar(value="")
 
         # 検証用基準点
         self.calib_rows = []
@@ -458,6 +468,17 @@ class ArnisColorizeGUI:
         self._dist_frame = dist_frame
         self._on_plateau_toggle()  # 初期状態を反映
 
+        # 道路色ラジオボタン
+        road_frame = tk.LabelFrame(frame, text="道路色", padx=8, pady=4)
+        road_frame.pack(fill="x", pady=(8, 0))
+        for label, value in ROAD_COLOR_OPTIONS:
+            tk.Radiobutton(
+                road_frame,
+                text=label,
+                variable=self.road_color_var,
+                value=value,
+            ).pack(anchor="w", padx=4)
+
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
 
     def _build_world_gen_section(self, parent):
@@ -725,6 +746,7 @@ class ArnisColorizeGUI:
                             footprint_mode=fp_mode,
                             max_dist_m=self.plateau_dist_m.get(),
                             height_overrides=height_overrides,
+                            road_color=self.road_color_var.get(),
                         )
 
                         with open(osm_plateau_path, "w", encoding="utf-8") as f:
@@ -1382,6 +1404,7 @@ class ArnisColorizeGUI:
                 self.mcworld_save_dir.set(
                     cfg.get("mcworld_save_dir", self._get_downloads_dir()))
                 self.luanti_output_dir.set(cfg.get("luanti_output_dir", ""))
+                self.road_color_var.set(cfg.get("road_color", ""))
         except Exception:
             pass
         # デフォルトのダウンロードフォルダを未設定時に補完
@@ -1399,6 +1422,7 @@ class ArnisColorizeGUI:
             cfg["mcworld_enabled"] = self.mcworld_enabled.get()
             cfg["mcworld_save_dir"] = self.mcworld_save_dir.get()
             cfg["luanti_output_dir"] = self.luanti_output_dir.get()
+            cfg["road_color"] = self.road_color_var.get()
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:
