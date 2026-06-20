@@ -327,6 +327,12 @@ def build_osm_height_patch(
                 if detail:
                     apply_building_detail(target_bd, detail)
                     patch_count += 1
+                    print(
+                        f"[building_details] {detail.get('name', '?')} → "
+                        f"壁色:{detail.get('building_colour', 'なし')} "
+                        f"高さ:{detail.get('height_m', '?')}m "
+                        f"タイプ:{detail.get('building_type', '?')}"
+                    )
                     continue
 
         height = None

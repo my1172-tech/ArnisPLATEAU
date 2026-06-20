@@ -27,6 +27,74 @@ MATERIAL_TO_COLOR = {
     "mixed":    "#B0A898",
 }
 
+MINECRAFT_BLOCK_TO_COLOR = {
+    # コンクリート系
+    "white_concrete":           "#FFFFFF",
+    "light_gray_concrete":      "#9D9D97",
+    "gray_concrete":            "#474F52",
+    "black_concrete":           "#1D1D21",
+    "brown_concrete":           "#603C20",
+    "red_concrete":             "#8E2020",
+    "orange_concrete":          "#E06101",
+    "yellow_concrete":          "#F0AF15",
+    "lime_concrete":            "#5EA918",
+    "green_concrete":           "#364B18",
+    "cyan_concrete":            "#158991",
+    "light_blue_concrete":      "#3AB3DA",
+    "blue_concrete":            "#2C2F8F",
+    "purple_concrete":          "#641F9C",
+    "magenta_concrete":         "#BE49C9",
+    "pink_concrete":            "#D5658F",
+    # 石系
+    "stone":                    "#7F7F7F",
+    "stone_bricks":             "#6A6A6A",
+    "smooth_stone":             "#9A9A9A",
+    "cobblestone":              "#828282",
+    "mossy_stone_bricks":       "#5F6B4A",
+    "chiseled_stone_bricks":    "#737373",
+    "cracked_stone_bricks":     "#686868",
+    # 砂岩・テラコッタ
+    "sandstone":                "#E0D5A0",
+    "smooth_sandstone":         "#DDD196",
+    "cut_sandstone":            "#D9CD8F",
+    "terracotta":               "#985335",
+    "white_terracotta":         "#D1B1A1",
+    "light_gray_terracotta":    "#876B62",
+    "gray_terracotta":          "#645452",
+    "cyan_terracotta":          "#575C5C",
+    # レンガ
+    "bricks":                   "#9C4E37",
+    "mud_bricks":               "#8E7355",
+    # 木材系
+    "oak_planks":               "#C49A3C",
+    "spruce_planks":            "#7E5C2B",
+    "birch_planks":             "#D7C185",
+    "dark_oak_planks":          "#3C2412",
+    "acacia_planks":            "#BA6637",
+    "jungle_planks":            "#9D7040",
+    # ガラス系（窓用）
+    "glass_pane":               "#C0D8E8",
+    "white_stained_glass":      "#FFFFFF",
+    "light_blue_stained_glass": "#5EB7D5",
+    "cyan_stained_glass":       "#157788",
+    "blue_stained_glass":       "#253193",
+    "gray_stained_glass":       "#3E3E3E",
+    "black_stained_glass":      "#141414",
+    # 金属・クォーツ系
+    "iron_bars":                "#7F7F7F",
+    "chiseled_quartz_block":    "#EAE6DC",
+    "quartz_block":             "#EAE6DC",
+    "smooth_quartz":            "#EAE6DC",
+}
+
+
+def minecraft_block_to_colour(block_name: str) -> Optional[str]:
+    """Minecraft ブロック名 → HEX 色文字列に変換"""
+    if not block_name:
+        return None
+    block = block_name.replace("minecraft:", "").strip().lower()
+    return MINECRAFT_BLOCK_TO_COLOR.get(block)
+
 
 def _haversine_m(lat1, lon1, lat2, lon2):
     R = 6371000
@@ -108,10 +176,31 @@ def apply_building_detail(elem: dict, detail: dict) -> None:
                   "roof:height", "roof:levels", "min_height"):
             tags.pop(k, None)
 
-    # 外装色
-    material = detail.get("exterior", {}).get("material", "")
-    if material in MATERIAL_TO_COLOR:
-        tags["building:colour"] = MATERIAL_TO_COLOR[material]
+    floor_details = detail.get("floor_details", [])
+    floor1 = next((f for f in floor_details if f.get("floor") == 1), None)
+
+    # 壁色（優先順位: minecraft_wall_block > building_colour > exterior.material）
+    wall_colour = None
+    if floor1:
+        wall_colour = minecraft_block_to_colour(floor1.get("minecraft_wall_block", ""))
+    if not wall_colour:
+        wall_colour = detail.get("building_colour")
+    if not wall_colour:
+        material = detail.get("exterior", {}).get("material", "")
+        wall_colour = MATERIAL_TO_COLOR.get(material)
+    if wall_colour:
+        tags["building:colour"] = wall_colour
+
+    # 屋根色
+    roof_colour = detail.get("roof_colour")
+    if roof_colour:
+        tags["roof:colour"] = roof_colour
+
+    # 窓色（minecraft_window_block → カスタムタグ）
+    if floor1:
+        window_colour = minecraft_block_to_colour(floor1.get("minecraft_window_block", ""))
+        if window_colour:
+            tags["building:colour:windows"] = window_colour
 
     # 窓パターン
     windows = detail.get("windows", {})
@@ -122,17 +211,20 @@ def apply_building_detail(elem: dict, detail: dict) -> None:
     if windows.get("pattern"):
         tags["window:pattern"] = windows["pattern"]
 
-    # building タグ（フロア用途の最多から判定）
-    floor_usage = detail.get("floor_usage", {})
-    if floor_usage:
-        usage_counts: dict = {}
-        for usage in floor_usage.values():
-            usage_counts[usage] = usage_counts.get(usage, 0) + 1
-        dominant_usage = max(usage_counts, key=usage_counts.get)
-        tags["building"] = USAGE_TO_BUILDING_TAG.get(dominant_usage, "yes")
+    # building タグ（building_type 直接指定 > floor_usage 判定）
+    building_type = detail.get("building_type")
+    if building_type:
+        tags["building"] = building_type
+    else:
+        floor_usage = detail.get("floor_usage", {})
+        if floor_usage:
+            usage_counts: dict = {}
+            for usage in floor_usage.values():
+                usage_counts[usage] = usage_counts.get(usage, 0) + 1
+            dominant_usage = max(usage_counts, key=usage_counts.get)
+            tags["building"] = USAGE_TO_BUILDING_TAG.get(dominant_usage, "yes")
 
     # 駐車場ルーバーフロア数
-    floor_details = detail.get("floor_details", [])
     louver_floors = [f for f in floor_details if f.get("window_pattern") == "louver"]
     if louver_floors:
         tags["building:parking_floors"] = str(len(louver_floors))
