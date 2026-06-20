@@ -231,19 +231,27 @@ def build_osm_height_patch(
     """
     patched = copy.deepcopy(osm_data)
 
-    # height_overrides を id一致用と手動近傍用に分類
-    overrides_by_id = {}
-    manual_overrides = []
+    # height_overrides を3種に分類
+    # - manual_coord_overrides: "manual_..."文字列id（座標直接入力）— 最高優先
+    # - manual_id_overrides:    source=manual かつ整数id（テーブルからのチェック選択）
+    # - plateau_id_overrides:   source=plateau かつ整数id
+    manual_coord_overrides = []
+    manual_id_overrides = {}
+    plateau_id_overrides = {}
     if height_overrides:
         for o in height_overrides:
             oid = o.get("osm_id")
             if isinstance(oid, str) and oid.startswith("manual_"):
-                manual_overrides.append(o)
+                manual_coord_overrides.append(o)
             elif oid is not None:
-                overrides_by_id[oid] = o
+                if o.get("source") == "manual":
+                    manual_id_overrides[oid] = o
+                else:
+                    plateau_id_overrides[oid] = o
 
+    total_overrides = len(manual_coord_overrides) + len(manual_id_overrides) + len(plateau_id_overrides)
     plateau_buildings = fetch_plateau_buildings(bbox)
-    if not plateau_buildings and not overrides_by_id and not manual_overrides:
+    if not plateau_buildings and total_overrides == 0:
         print("[plateau_height_merge] PLATEAUデータなし・overridesなし → OSMパッチをスキップ")
         return patched, 0
 
@@ -254,7 +262,11 @@ def build_osm_height_patch(
 
     print(f"[plateau_height_merge] build_osm_height_patch: "
           f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟"
-          f" / overrides {len(overrides_by_id)}棟 / manual {len(manual_overrides)}棟")
+          f" / manual_coord {len(manual_coord_overrides)} / manual_id {len(manual_id_overrides)}"
+          f" / plateau_id {len(plateau_id_overrides)}")
+
+    # 要素検索を高速化するため id → elem の逆引き辞書を作成
+    elem_by_id = {e.get("id"): e for e in patched.get("elements", []) if e.get("id") is not None}
 
     patch_count = 0
     for osm_b in osm_buildings:
@@ -268,12 +280,11 @@ def build_osm_height_patch(
 
         height = None
 
-        # 優先1: 手動座標入力（"manual_..."id）— 近傍50m以内で最近傍にマッチ（最高優先）
-        # PLATEAUデータと同じ建物に重複登録された場合でも手動値が勝つ
-        if manual_overrides and center_lat is not None:
+        # 優先1: 手動座標入力（"manual_..."id）— 近傍50m以内の最近傍を採用（最高優先）
+        if manual_coord_overrides and center_lat is not None:
             best_dist = float("inf")
             best_override = None
-            for o in manual_overrides:
+            for o in manual_coord_overrides:
                 if o.get("lat") is None or o.get("lon") is None:
                     continue
                 dist = _haversine_m(center_lat, center_lon, o["lat"], o["lon"])
@@ -283,31 +294,44 @@ def build_osm_height_patch(
             if best_override:
                 height = best_override.get("height_m")
 
-        # 優先2: osm_id 一致の override（plateau または整数idの手動登録）
-        if height is None and osm_id in overrides_by_id:
-            height = overrides_by_id[osm_id].get("height_m")
+        # 優先2: source=manual かつ整数 osm_id（テーブルのチェック選択）
+        if height is None and osm_id in manual_id_overrides:
+            height = manual_id_overrides[osm_id].get("height_m")
 
-        # 優先3: PLATEAUマッチング
+        # 優先3: source=plateau かつ整数 osm_id
+        if height is None and osm_id in plateau_id_overrides:
+            height = plateau_id_overrides[osm_id].get("height_m")
+
+        # 優先4: PLATEAU APIマッチング
         if height is None and plateau_buildings and center_lat is not None:
             match = find_building_for_footprint(
                 plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
             )
             height = match.get("measured_height") if match else None
 
+        # 優先5: building:levels × 3m 補完（いずれもなし・PLATEAU未収録建物のみ）
+        target_elem = elem_by_id.get(osm_id)
+        if height is None and target_elem is not None:
+            levels_str = target_elem.get("tags", {}).get("building:levels")
+            if levels_str:
+                try:
+                    height = float(levels_str) * 3.0
+                except ValueError:
+                    pass
+
         if height is None:
             continue
 
-        for elem in patched.get("elements", []):
-            if elem.get("id") == osm_id:
-                if "tags" not in elem:
-                    elem["tags"] = {}
-                elem["tags"]["height"] = str(round(height, 1))
-                # arnisが building:levels 等を優先してheightを無視するのを防ぐ
-                for _k in ("building:levels", "building:levels:underground",
-                           "roof:height", "roof:levels", "min_height"):
-                    elem["tags"].pop(_k, None)
-                patch_count += 1
-                break
+        if target_elem is None:
+            continue
+        if "tags" not in target_elem:
+            target_elem["tags"] = {}
+        target_elem["tags"]["height"] = str(round(height, 1))
+        # arnisが building:levels 等を優先してheightを無視するのを防ぐ
+        for _k in ("building:levels", "building:levels:underground",
+                   "roof:height", "roof:levels", "min_height"):
+            target_elem["tags"].pop(_k, None)
+        patch_count += 1
 
-    print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override高さを設定")
+    print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override/levels高さを設定")
     return patched, patch_count

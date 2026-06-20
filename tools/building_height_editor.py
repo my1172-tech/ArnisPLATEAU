@@ -108,6 +108,11 @@ def _parse_building_levels(val):
         return None
 
 
+def is_unnamed_building(name: str) -> bool:
+    """「建物(数値)」パターン（例: 建物(6034)）か判定する。"""
+    return bool(re.match(r'^建物\(\d+\)$', name or ''))
+
+
 # ---------------------------------------------------------------------------
 # BuildingHeightEditor ダイアログ
 # ---------------------------------------------------------------------------
@@ -128,6 +133,7 @@ class BuildingHeightEditor:
         self._web_lbls = {}      # osm_id -> tk.Label（描画中のみ有効）
         self._web_fetch_done = set()  # Webフェッチ完了済み osm_id のセット
         self._filter_var = tk.StringVar(value="全て")
+        self.auto_fetch_var = tk.BooleanVar(value=False)
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("建物高さ調整")
@@ -147,6 +153,14 @@ class BuildingHeightEditor:
             anchor="w", font=("", 9)
         )
         self.lbl_status.pack(fill="x", padx=8, pady=(6, 2))
+
+        # 自動取得チェックボックス（デフォルトOFF）
+        tk.Checkbutton(
+            self.dialog,
+            text="自動取得（Overpass / Wikipedia / Web）を実行する",
+            variable=self.auto_fetch_var,
+            font=("", 9),
+        ).pack(anchor="w", padx=8, pady=(0, 4))
 
         # フィルタ行
         filter_frame = tk.Frame(self.dialog)
@@ -328,11 +342,16 @@ class BuildingHeightEditor:
             return []
 
     def _on_buildings_loaded(self, plateau_count: int):
+        if self.auto_fetch_var.get():
+            status_suffix = "Wikipedia取得中..."
+        else:
+            status_suffix = "（自動取得OFF）"
         self.lbl_status.config(
-            text=f"取得状況: {len(self.rows)}棟 / PLATEAU {plateau_count}棟マッチ / Wikipedia取得中..."
+            text=f"取得状況: {len(self.rows)}棟 / PLATEAU {plateau_count}棟マッチ / {status_suffix}"
         )
         self._render_rows()
-        threading.Thread(target=self._fetch_web_heights_async, daemon=True).start()
+        if self.auto_fetch_var.get():
+            threading.Thread(target=self._fetch_web_heights_async, daemon=True).start()
 
     # ── テーブル描画 ─────────────────────────────────────────────────────
 
@@ -343,12 +362,23 @@ class BuildingHeightEditor:
 
         threshold = FILTER_OPTIONS.get(self._filter_var.get(), 0)
         displayed = 0
+        unnamed_count = 0
         for row in self.rows:
+            if is_unnamed_building(row.get("name", "")):
+                unnamed_count += 1
+                continue
             h_judge = row["adopt_height"] or row["plateau_height"] or row["osm_height"] or 0
             if h_judge < threshold:
                 continue
             self._add_row_widget(row, displayed)
             displayed += 1
+
+        if unnamed_count > 0:
+            tk.Label(
+                self._table_frame,
+                text=f"名称不明  {unnamed_count}件（非表示中）",
+                fg="gray", font=("", 8),
+            ).pack(anchor="w", padx=8, pady=2)
 
     def _refresh_table(self):
         self._render_rows()
