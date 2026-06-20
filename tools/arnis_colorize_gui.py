@@ -165,6 +165,9 @@ class ArnisColorizeGUI:
         # 道路色設定
         self.road_color_var = tk.StringVar(value="")
 
+        # 屋根色自動取得設定（デフォルトOFF）
+        self.roof_color_var = tk.BooleanVar(value=False)
+
         # 検証用基準点
         self.calib_rows = []
 
@@ -479,6 +482,18 @@ class ArnisColorizeGUI:
                 value=value,
             ).pack(anchor="w", padx=4)
 
+        # 屋根色自動取得チェックボックス
+        tk.Checkbutton(
+            frame,
+            text="衛星画像から屋根色を自動取得（PLATEAUなし建物）",
+            variable=self.roof_color_var,
+        ).pack(anchor="w", pady=(6, 0))
+        tk.Label(
+            frame,
+            text="※ 国土地理院シームレス衛星写真を使用。建物数が多い場合は時間がかかります",
+            fg="gray", font=("", 8),
+        ).pack(anchor="w")
+
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
 
     def _build_world_gen_section(self, parent):
@@ -740,6 +755,9 @@ class ArnisColorizeGUI:
                         with open(osm_raw_path, "r", encoding="utf-8") as f:
                             osm_for_patch = json.load(f)
 
+                        apply_roof_color = self.roof_color_var.get()
+                        if apply_roof_color:
+                            self._log("屋根色取得: 国土地理院シームレス衛星写真を使用")
                         patched_osm, patch_count = build_osm_height_patch(
                             bbox=bbox,
                             osm_data=osm_for_patch,
@@ -747,6 +765,7 @@ class ArnisColorizeGUI:
                             max_dist_m=self.plateau_dist_m.get(),
                             height_overrides=height_overrides,
                             road_color=self.road_color_var.get(),
+                            apply_roof_color=apply_roof_color,
                         )
 
                         with open(osm_plateau_path, "w", encoding="utf-8") as f:
@@ -1405,6 +1424,7 @@ class ArnisColorizeGUI:
                     cfg.get("mcworld_save_dir", self._get_downloads_dir()))
                 self.luanti_output_dir.set(cfg.get("luanti_output_dir", ""))
                 self.road_color_var.set(cfg.get("road_color", ""))
+                self.roof_color_var.set(bool(cfg.get("apply_roof_color", False)))
         except Exception:
             pass
         # デフォルトのダウンロードフォルダを未設定時に補完
@@ -1423,6 +1443,7 @@ class ArnisColorizeGUI:
             cfg["mcworld_save_dir"] = self.mcworld_save_dir.get()
             cfg["luanti_output_dir"] = self.luanti_output_dir.get()
             cfg["road_color"] = self.road_color_var.get()
+            cfg["apply_roof_color"] = self.roof_color_var.get()
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:

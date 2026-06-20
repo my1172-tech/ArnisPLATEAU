@@ -226,6 +226,7 @@ def build_osm_height_patch(
     max_dist_m: float = 50.0,
     height_overrides: list = None,
     road_color: str = "",
+    apply_roof_color: bool = False,
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
@@ -275,6 +276,13 @@ def build_osm_height_patch(
     # 要素検索を高速化するため id → elem の逆引き辞書を作成
     elem_by_id = {e.get("id"): e for e in patched.get("elements", []) if e.get("id") is not None}
 
+    # 屋根色取得用: node id → (lon, lat) の逆引き辞書
+    node_map = {
+        e["id"]: (e.get("lon", 0.0), e.get("lat", 0.0))
+        for e in patched.get("elements", [])
+        if e.get("type") == "node"
+    } if apply_roof_color else {}
+
     patch_count = 0
     for osm_b in osm_buildings:
         osm_id = osm_b.get("id")
@@ -320,6 +328,9 @@ def build_osm_height_patch(
             )
             height = match.get("measured_height") if match else None
 
+        # 優先1-4でのheight取得有無を記録（屋根色はPLATEAUなし建物のみ対象）
+        has_priority_height = height is not None
+
         # 優先5: building:levels × 3m 補完（いずれもなし・PLATEAU未収録建物のみ）
         target_elem = elem_by_id.get(osm_id)
         if height is None and target_elem is not None:
@@ -346,6 +357,20 @@ def build_osm_height_patch(
         building_type = matched_override.get("building_type", "") if matched_override else ""
         if building_type:
             target_elem["tags"]["building"] = building_type
+
+        # 屋根色: PLATEAU非マッチ建物のみ衛星画像から取得（apply_roof_color=True時）
+        if apply_roof_color and not has_priority_height:
+            try:
+                from satellite_roof_color import get_roof_color_from_polygon
+                way_nodes = target_elem.get("nodes", [])
+                polygon_lonlat = [node_map[nid] for nid in way_nodes if nid in node_map]
+                if len(polygon_lonlat) >= 3:
+                    color = get_roof_color_from_polygon(polygon_lonlat)
+                    if color:
+                        target_elem["tags"]["roof:colour"] = color
+            except Exception:
+                pass
+
         patch_count += 1
 
     print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override/levels高さを設定")

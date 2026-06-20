@@ -29,6 +29,7 @@ a = Analysis(
         ('tools\\calibration.py', '.'),
         ('tools\\chunker_converter.py', '.'),
         ('tools\\building_height_editor.py', '.'),
+        ('tools\\satellite_roof_color.py', '.'),
         ('tools\\chunker-cli', 'chunker-cli'),
     ],
     hiddenimports=[
@@ -39,8 +40,9 @@ a = Analysis(
         'amulet',
         'requests',
         'shapely', 'shapely.geometry',
+        'PIL', 'PIL.Image', 'PIL.ImageDraw',
     ],
-    excludes=['sklearn', 'PIL', 'numpy'],
+    excludes=['sklearn', 'numpy'],
     hookspath=[], runtime_hooks=[],
     win_no_prefer_redirects=False, win_private_assemblies=False,
     cipher=block_cipher, noarchive=False,
