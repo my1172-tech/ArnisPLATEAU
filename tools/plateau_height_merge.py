@@ -289,6 +289,7 @@ def build_osm_height_patch(
     # Street View 壁色: 関数スコープキャッシュと取得済み件数
     _sv_cache: dict = {}
     sv_count = 0
+    sv_level_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 
     patch_count = 0
     for osm_b in osm_buildings:
@@ -382,6 +383,9 @@ def build_osm_height_patch(
                 target_elem["tags"]["roof:colour"] = sv_result["roof_colour"]
                 if not building_type:  # 手動 building_type が指定されている場合は上書きしない
                     target_elem["tags"]["building"] = sv_result["building_type"]
+                target_elem["tags"]["window:density"] = str(sv_result["window_level"])
+                target_elem["tags"]["window:size"] = sv_result["window_size"]
+                sv_level_counts[sv_result["window_level"]] = sv_level_counts.get(sv_result["window_level"], 0) + 1
                 sv_count += 1
 
         # 屋根色: Street View未取得の建物のみ衛星画像から取得
@@ -400,6 +404,10 @@ def build_osm_height_patch(
         patch_count += 1
 
     print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override/levels高さを設定")
+    if sv_count > 0:
+        lv = sv_level_counts
+        print(f"[plateau_height_merge] Street View 壁色・窓パターン: {sv_count}棟 "
+              f"Lv1={lv[1]} Lv2={lv[2]} Lv3={lv[3]} Lv4={lv[4]} Lv5={lv[5]}")
 
     # 道路色の一括適用
     if road_color and road_color in ROAD_COLOR_MAP:

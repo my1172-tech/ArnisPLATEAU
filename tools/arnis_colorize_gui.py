@@ -800,7 +800,7 @@ class ArnisColorizeGUI:
                         apply_building_color = self.apply_building_color_var.get()
                         sv_api_key = self.sv_api_key_var.get().strip()
                         if apply_building_color and sv_api_key:
-                            self._log(f"壁色取得: Street View API（上限 {self.sv_limit_var.get()}棟）")
+                            self._log(f"壁色・窓パターン取得: Street View API（上限 {self.sv_limit_var.get()}棟）")
                         patched_osm, patch_count = build_osm_height_patch(
                             bbox=bbox,
                             osm_data=osm_for_patch,

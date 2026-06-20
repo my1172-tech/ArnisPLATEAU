@@ -2,6 +2,7 @@
 streetview_building_color.py
 Google Street View Static API から建物壁面の色を k-means で抽出する
 v2: ガラス率30%以上の建物はガラス色を roof:colour に使用
+v3: 窓密度（5段階）と窓サイズ（FFTゼロクロッシング）を追加
 """
 
 import io
@@ -18,6 +19,57 @@ except ImportError:
 
 
 STREETVIEW_URL = "https://maps.googleapis.com/maps/api/streetview"
+
+# 窓密度レベル定義（glass_ratio → level, building_type）
+WINDOW_DENSITY_LEVELS = [
+    (0.70, 5, "commercial"),   # ガラス全面
+    (0.50, 4, "office"),       # 窓多い
+    (0.30, 3, "apartments"),   # 窓普通
+    (0.15, 2, "residential"),  # 窓少ない
+    (0.00, 1, "industrial"),   # 窓極少
+]
+
+
+def glass_ratio_to_level(glass_ratio: float) -> tuple:
+    """glass_ratio → (level: int 1-5, building_type: str)"""
+    for threshold, level, building_type in WINDOW_DENSITY_LEVELS:
+        if glass_ratio >= threshold:
+            return level, building_type
+    return 1, "industrial"
+
+
+def detect_window_size(crop_img) -> str:
+    """
+    輝度プロファイルのゼロクロッシング間隔から窓の繰り返しサイズを検出する
+    戻り値: "large" / "medium" / "small"
+    """
+    gray = crop_img.convert("L")
+    w, h = gray.size
+
+    mid_row = [gray.getpixel((x, h // 2)) for x in range(w)]
+    avg = sum(mid_row) / len(mid_row)
+
+    crossings = []
+    prev_above = mid_row[0] > avg
+    for i, v in enumerate(mid_row):
+        above = v > avg
+        if above != prev_above:
+            crossings.append(i)
+        prev_above = above
+
+    if len(crossings) < 2:
+        return "large"
+
+    intervals = [crossings[i + 1] - crossings[i] for i in range(len(crossings) - 1)]
+    avg_interval = sum(intervals) / len(intervals)
+    relative = avg_interval / w
+
+    if relative > 0.15:
+        return "large"
+    elif relative > 0.08:
+        return "medium"
+    else:
+        return "small"
 
 
 def _kmeans_3(pixels: list, iterations: int = 10) -> list:
@@ -146,19 +198,26 @@ def get_building_colors_from_streetview(
         (c for c in clusters if _is_glass_color(c)), None
     )
 
+    # 窓密度レベルと building タグ（密度ベース）
+    window_level, building_type_from_density = glass_ratio_to_level(glass_ratio)
+
+    # 窓サイズ検出
+    window_size = detect_window_size(crop)
+
     # building タグ判定 + roof:colour 決定
     color_diff = _color_distance(c1, c2)
 
     if glass_ratio > 0.30:
-        # ガラスが30%以上 → ガラス色を roof:colour に使用
-        building_type = "commercial"
+        # ガラスが30%以上 → 密度ベースの building タグ、ガラス色を roof:colour に使用
+        building_type = building_type_from_density
         roof_color = to_hex(glass_cluster) if glass_cluster else to_hex(c2)
     elif color_diff > 60:
-        # 2色が明確に違う → 壁色2をアクセントとして使用
+        # 2色が明確に違う → apartments
         building_type = "apartments"
         roof_color = to_hex(c2)
     else:
-        building_type = "office"
+        # 単色系 → 密度ベースの building タグ
+        building_type = building_type_from_density
         roof_color = to_hex(c2)
 
     return {
@@ -166,6 +225,8 @@ def get_building_colors_from_streetview(
         "roof_colour": roof_color,
         "building_type": building_type,
         "glass_ratio": round(glass_ratio, 2),
+        "window_level": window_level,
+        "window_size": window_size,
     }
 
 
