@@ -38,11 +38,40 @@ def _haversine_m(lat1, lon1, lat2, lon2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
+def calibration_to_bbox(calib_points: dict) -> tuple:
+    """calibration.points の min/max から bbox タプルを生成"""
+    return (
+        calib_points["minGeoLat"],
+        calib_points["minGeoLon"],
+        calib_points["maxGeoLat"],
+        calib_points["maxGeoLon"],
+    )
+
+
+def calc_mc_coords(
+    lat: float,
+    lon: float,
+    bbox: tuple,
+    mc_width: int,
+    mc_height: int,
+) -> tuple:
+    """緯度経度 → Minecraft X/Z 座標"""
+    min_lat, min_lon, max_lat, max_lon = bbox
+    if max_lon == min_lon or max_lat == min_lat:
+        return 0, 0
+    mc_x = int((lon - min_lon) / (max_lon - min_lon) * mc_width)
+    mc_z = int((lat - min_lat) / (max_lat - min_lat) * mc_height)
+    return mc_x, mc_z
+
+
 def find_building_detail(
     buildings: list,
     center_lat: float,
     center_lon: float,
     max_dist_m: float = 50.0,
+    bbox: tuple = None,
+    mc_width: int = 2000,
+    mc_height: int = 2000,
 ) -> Optional[Dict]:
     best_dist = float("inf")
     best = None
@@ -55,6 +84,16 @@ def find_building_detail(
         if dist <= max_dist_m and dist < best_dist:
             best_dist = dist
             best = b
+
+    if best and bbox:
+        if best.get("mc_x") is None or best.get("mc_z") is None:
+            mc_x, mc_z = calc_mc_coords(
+                best["lat"], best["lon"], bbox, mc_width, mc_height
+            )
+            best = dict(best)
+            best["mc_x"] = mc_x
+            best["mc_z"] = mc_z
+
     return best
 
 

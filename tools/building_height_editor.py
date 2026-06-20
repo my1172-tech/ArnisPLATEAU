@@ -577,6 +577,7 @@ class BuildingHeightEditor:
                     "buildings キーが見つかりません。\nJSON形式を確認してください。"
                 )
                 return
+            self._raw_building_json = data
             self.building_details = buildings
             self.calibration_data = data.get("calibration", {})
             count = len(buildings)
@@ -592,6 +593,12 @@ class BuildingHeightEditor:
             self.bd_names_label.config(text=names)
         except Exception as e:
             messagebox.showerror("読み込みエラー", f"JSONの読み込みに失敗しました:\n{e}")
+
+    def _get_calibration_data(self) -> dict:
+        """読み込み済み building_details から calibration データを取得"""
+        if not hasattr(self, "_raw_building_json"):
+            return {}
+        return self._raw_building_json.get("calibration", {})
 
     def _apply_filter(self):
         self._render_rows()

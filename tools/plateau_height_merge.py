@@ -231,6 +231,7 @@ def build_osm_height_patch(
     streetview_api_key: str = "",
     sv_limit: int = 50,
     building_details: list = None,
+    calibration_data: dict = None,
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
@@ -287,6 +288,18 @@ def build_osm_height_patch(
         if e.get("type") == "node"
     } if apply_roof_color else {}
 
+    # building_details 用: calibration_data から bbox を計算
+    _bd_bbox = None
+    _bd_mc_width = 2000
+    _bd_mc_height = 2000
+    if calibration_data:
+        from building_details_loader import calibration_to_bbox
+        _calib_pts = calibration_data.get("points", {})
+        if _calib_pts.get("minGeoLat") is not None:
+            _bd_bbox = calibration_to_bbox(_calib_pts)
+            _bd_mc_width = int(_calib_pts.get("mcWidth", 2000))
+            _bd_mc_height = int(_calib_pts.get("mcHeight", 2000))
+
     # Street View 壁色: 関数スコープキャッシュと取得済み件数
     _sv_cache: dict = {}
     sv_count = 0
@@ -307,7 +320,10 @@ def build_osm_height_patch(
             target_bd = elem_by_id.get(osm_id)
             if target_bd is not None:
                 from building_details_loader import find_building_detail, apply_building_detail
-                detail = find_building_detail(building_details, center_lat, center_lon)
+                detail = find_building_detail(
+                    building_details, center_lat, center_lon,
+                    bbox=_bd_bbox, mc_width=_bd_mc_width, mc_height=_bd_mc_height,
+                )
                 if detail:
                     apply_building_detail(target_bd, detail)
                     patch_count += 1
