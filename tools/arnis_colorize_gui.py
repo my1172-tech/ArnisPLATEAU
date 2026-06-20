@@ -612,6 +612,7 @@ class ArnisColorizeGUI:
                     save_json_path=osm_raw_path,
                 )
 
+            self._log("[STAGE1 CMD] " + " ".join(launcher.last_cmd))
             self.root.after(0, lambda: self.lbl_gen_status.config(text="ワールド生成中..."))
             ok = launcher.wait_for_complete(timeout=3600)
 
@@ -746,6 +747,7 @@ class ArnisColorizeGUI:
                             spawn_lat=spawn_lat,
                             spawn_lon=spawn_lon,
                         )
+                        self._log("[STAGE2 CMD] " + " ".join(launcher2.last_cmd))
 
                         self.root.after(0, lambda: self.lbl_gen_status.config(text="第2段階: ワールド生成中..."))
                         ok2 = launcher2.wait_for_complete(timeout=3600)

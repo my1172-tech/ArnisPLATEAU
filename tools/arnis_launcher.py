@@ -78,6 +78,7 @@ class ArnisLauncher:
         self.log_queue = queue.Queue()
         self.generation_complete = threading.Event()
         self.world_path: str = None  # 完了ログから抽出した生成ワールドパス
+        self.last_cmd: list = []     # launch() で実行したコマンド（デバッグ用）
 
     def launch(
         self,
@@ -116,7 +117,7 @@ class ArnisLauncher:
             spawn_lon=spawn_lon,
             available_flags=available_flags,
         )
-        print("[arnis_launcher] STAGE CMD:", " ".join(args))
+        self.last_cmd = args  # 呼び出し元からログ出力できるよう保存
 
         popen_kwargs = {
             "stdout": subprocess.PIPE,
