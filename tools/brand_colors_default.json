@@ -3,114 +3,172 @@
     "_generic": {
       "wall": "white_concrete",
       "roof": "light_gray_concrete",
-      "roof_shape": "flat",
       "sign": "yellow_concrete"
     },
-    "セブン-イレブン":  {"wall": "white_concrete", "roof": "gray_concrete",       "roof_shape": "flat", "sign": "orange_concrete", "sign_accent": "green_concrete"},
-    "7-Eleven":        {"wall": "white_concrete", "roof": "gray_concrete",       "roof_shape": "flat", "sign": "orange_concrete", "sign_accent": "green_concrete"},
-    "ファミリーマート": {"wall": "white_concrete", "roof": "blue_concrete",        "roof_shape": "flat", "sign": "green_concrete"},
-    "FamilyMart":      {"wall": "white_concrete", "roof": "blue_concrete",        "roof_shape": "flat", "sign": "green_concrete"},
-    "ローソン":         {"wall": "white_concrete", "roof": "blue_concrete",        "roof_shape": "flat", "sign": "blue_concrete"},
-    "Lawson":          {"wall": "white_concrete", "roof": "blue_concrete",        "roof_shape": "flat", "sign": "blue_concrete"},
-    "ミニストップ":     {"wall": "white_concrete", "roof": "green_concrete",       "roof_shape": "flat", "sign": "yellow_concrete"},
-    "MiniStop":        {"wall": "white_concrete", "roof": "green_concrete",       "roof_shape": "flat", "sign": "yellow_concrete"},
-    "デイリーヤマザキ": {"wall": "white_concrete", "roof": "red_concrete",         "roof_shape": "flat", "sign": "red_concrete"},
-    "セイコーマート":   {"wall": "white_concrete", "roof": "green_concrete",       "roof_shape": "flat", "sign": "green_concrete"}
+    "セブン-イレブン":  {"wall": "white_concrete", "roof": "orange_concrete", "sign": "green_concrete",  "sign_accent": "red_concrete"},
+    "7-Eleven":        {"wall": "white_concrete", "roof": "orange_concrete", "sign": "green_concrete",  "sign_accent": "red_concrete"},
+    "ファミリーマート": {"wall": "white_concrete", "roof": "cyan_concrete",   "sign": "light_blue_concrete"},
+    "FamilyMart":      {"wall": "white_concrete", "roof": "cyan_concrete",   "sign": "light_blue_concrete"},
+    "ローソン":         {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "Lawson":          {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ミニストップ":     {"wall": "white_concrete", "roof": "green_concrete",  "sign": "yellow_concrete"},
+    "MiniStop":        {"wall": "white_concrete", "roof": "green_concrete",  "sign": "yellow_concrete"},
+    "デイリーヤマザキ": {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "セイコーマート":   {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"}
   },
   "gas_station": {
     "_generic": {
       "wall": "white_concrete",
       "roof": "light_gray_concrete",
-      "roof_shape": "flat",
       "canopy": "light_gray_concrete",
       "sign": "yellow_concrete"
     },
-    "ENEOS":     {"wall": "white_concrete", "canopy": "blue_concrete",       "roof_shape": "flat", "sign": "blue_concrete"},
-    "エネオス":   {"wall": "white_concrete", "canopy": "blue_concrete",       "roof_shape": "flat", "sign": "blue_concrete"},
-    "出光":       {"wall": "white_concrete", "canopy": "red_concrete",        "roof_shape": "flat", "sign": "red_concrete"},
-    "コスモ石油": {"wall": "white_concrete", "canopy": "light_blue_concrete", "roof_shape": "flat", "sign": "light_blue_concrete"},
-    "Shell":     {"wall": "white_concrete", "canopy": "yellow_concrete",     "roof_shape": "flat", "sign": "red_concrete"},
-    "昭和シェル": {"wall": "white_concrete", "canopy": "yellow_concrete",     "roof_shape": "flat", "sign": "red_concrete"},
-    "Apollo Station": {"wall": "white_concrete", "canopy": "red_concrete",   "roof_shape": "flat", "sign": "red_concrete"}
+    "ENEOS":           {"wall": "white_concrete", "canopy": "blue_concrete",        "sign": "blue_concrete"},
+    "エネオス":         {"wall": "white_concrete", "canopy": "blue_concrete",        "sign": "blue_concrete"},
+    "出光":             {"wall": "white_concrete", "canopy": "red_concrete",         "sign": "red_concrete"},
+    "コスモ石油":       {"wall": "white_concrete", "canopy": "light_blue_concrete",  "sign": "light_blue_concrete"},
+    "Shell":           {"wall": "white_concrete", "canopy": "yellow_concrete",      "sign": "red_concrete"},
+    "昭和シェル":       {"wall": "white_concrete", "canopy": "yellow_concrete",      "sign": "red_concrete"},
+    "Apollo Station":  {"wall": "white_concrete", "canopy": "red_concrete",         "sign": "red_concrete"}
   },
   "fast_food": {
     "_generic": {
       "wall": "white_concrete",
       "roof": "red_concrete",
-      "roof_shape": "gabled",
       "sign": "yellow_concrete"
     },
-    "McDonald's":  {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "flat",   "sign": "yellow_concrete"},
-    "マクドナルド": {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "flat",   "sign": "yellow_concrete"},
-    "KFC":         {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "gabled", "sign": "red_concrete"},
-    "ケンタッキーフライドチキン": {"wall": "white_concrete", "roof": "red_concrete", "roof_shape": "gabled", "sign": "red_concrete"},
-    "吉野家":      {"wall": "white_concrete", "roof": "orange_concrete", "roof_shape": "flat",   "sign": "orange_concrete"},
-    "すき家":      {"wall": "white_concrete", "roof": "orange_concrete", "roof_shape": "flat",   "sign": "orange_concrete"},
-    "モスバーガー": {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "gabled", "sign": "green_concrete"},
-    "Mos Burger":  {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "gabled", "sign": "green_concrete"},
-    "バーガーキング":{"wall": "white_concrete", "roof": "red_concrete",   "roof_shape": "flat",   "sign": "yellow_concrete"},
-    "Burger King": {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "flat",   "sign": "yellow_concrete"},
-    "松屋":        {"wall": "white_concrete", "roof": "yellow_concrete", "roof_shape": "flat",   "sign": "yellow_concrete"},
-    "なか卯":      {"wall": "white_concrete", "roof": "blue_concrete",   "roof_shape": "flat",   "sign": "blue_concrete"}
+    "McDonald's":              {"wall": "white_concrete", "roof": "red_concrete",    "sign": "yellow_concrete"},
+    "マクドナルド":             {"wall": "white_concrete", "roof": "red_concrete",    "sign": "yellow_concrete"},
+    "KFC":                     {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "ケンタッキーフライドチキン":{"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "吉野家":                   {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "すき家":                   {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "モスバーガー":             {"wall": "white_concrete", "roof": "red_concrete",    "sign": "green_concrete"},
+    "Mos Burger":              {"wall": "white_concrete", "roof": "red_concrete",    "sign": "green_concrete"},
+    "バーガーキング":           {"wall": "white_concrete", "roof": "red_concrete",    "sign": "yellow_concrete"},
+    "Burger King":             {"wall": "white_concrete", "roof": "red_concrete",    "sign": "yellow_concrete"},
+    "松屋":                    {"wall": "white_concrete", "roof": "yellow_concrete", "sign": "yellow_concrete"},
+    "なか卯":                  {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "スシロー":                 {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "くら寿司":                 {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "はま寿司":                 {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "かっぱ寿司":               {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "サイゼリヤ":               {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "ガスト":                   {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "デニーズ":                 {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "ジョナサン":               {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "ロイヤルホスト":           {"wall": "white_concrete", "roof": "yellow_concrete", "sign": "yellow_concrete"},
+    "ドミノ・ピザ":             {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "red_concrete"},
+    "Domino's Pizza":          {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "red_concrete"},
+    "ピザハット":               {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "Pizza Hut":               {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "餃子の王将":               {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "大戸屋":                   {"wall": "white_concrete", "roof": "brown_concrete",  "sign": "brown_concrete"},
+    "CoCo壱番屋":              {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "幸楽苑":                   {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "日高屋":                   {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "天丼てんや":               {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "リンガーハット":           {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "スターバックス":           {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "Starbucks":               {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "ドトール":                 {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "コメダ珈琲店":             {"wall": "white_concrete", "roof": "brown_concrete",  "sign": "brown_concrete"},
+    "タリーズコーヒー":         {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"}
   },
   "pharmacy": {
     "_generic": {
       "wall": "white_concrete",
       "roof": "green_concrete",
-      "roof_shape": "flat",
       "sign": "green_concrete"
     },
-    "マツモトキヨシ": {"wall": "yellow_concrete", "roof": "yellow_concrete", "roof_shape": "flat", "sign": "black_concrete"},
-    "ウエルシア":    {"wall": "white_concrete",  "roof": "blue_concrete",   "roof_shape": "flat", "sign": "blue_concrete"},
-    "ドラッグストアモリ": {"wall": "white_concrete", "roof": "green_concrete", "roof_shape": "flat", "sign": "green_concrete"},
-    "ツルハドラッグ": {"wall": "white_concrete",  "roof": "red_concrete",    "roof_shape": "flat", "sign": "red_concrete"},
-    "スギ薬局":     {"wall": "white_concrete",  "roof": "green_concrete",  "roof_shape": "flat", "sign": "green_concrete"},
-    "コスモス":     {"wall": "white_concrete",  "roof": "blue_concrete",   "roof_shape": "flat", "sign": "blue_concrete"}
+    "マツモトキヨシ":   {"wall": "yellow_concrete", "roof": "yellow_concrete", "sign": "black_concrete"},
+    "ウエルシア":       {"wall": "white_concrete",  "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ドラッグストアモリ":{"wall": "white_concrete",  "roof": "green_concrete",  "sign": "green_concrete"},
+    "ツルハドラッグ":   {"wall": "white_concrete",  "roof": "red_concrete",    "sign": "red_concrete"},
+    "スギ薬局":         {"wall": "white_concrete",  "roof": "green_concrete",  "sign": "green_concrete"},
+    "コスモス":         {"wall": "white_concrete",  "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "サンドラッグ":     {"wall": "white_concrete",  "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "カワチ薬品":       {"wall": "white_concrete",  "roof": "green_concrete",  "sign": "green_concrete"},
+    "ハックドラッグ":   {"wall": "white_concrete",  "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ダイコクドラッグ": {"wall": "white_concrete",  "roof": "red_concrete",    "sign": "red_concrete"}
   },
   "supermarket": {
     "_generic": {
       "wall": "white_concrete",
       "roof": "blue_concrete",
-      "roof_shape": "flat",
       "sign": "blue_concrete"
     },
-    "イオン":    {"wall": "white_concrete", "roof": "red_concrete",   "roof_shape": "flat", "sign": "red_concrete"},
-    "イトーヨーカドー": {"wall": "white_concrete", "roof": "red_concrete", "roof_shape": "flat", "sign": "red_concrete"},
-    "西友":      {"wall": "white_concrete", "roof": "blue_concrete",  "roof_shape": "flat", "sign": "blue_concrete"},
-    "ライフ":    {"wall": "white_concrete", "roof": "green_concrete", "roof_shape": "flat", "sign": "green_concrete"},
-    "マルエツ":  {"wall": "white_concrete", "roof": "red_concrete",   "roof_shape": "flat", "sign": "red_concrete"},
-    "ゆめマート":{"wall": "white_concrete", "roof": "red_concrete",   "roof_shape": "flat", "sign": "red_concrete"}
+    "イオン":           {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "イオンモール":     {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "イトーヨーカドー": {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "西友":             {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ライフ":           {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "マルエツ":         {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "ゆめマート":       {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "ゆめタウン":       {"wall": "light_gray_concrete", "roof": "cyan_concrete", "sign": "red_concrete"},
+    "コープ":           {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "生協":             {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ヤオコー":         {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "オークワ":         {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "バロー":           {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ニトリ":           {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ドン・キホーテ":   {"wall": "yellow_concrete", "roof": "yellow_concrete","sign": "red_concrete"},
+    "MEGAドン・キホーテ":{"wall": "yellow_concrete","roof": "yellow_concrete","sign": "red_concrete"}
   },
   "bank": {
     "_generic": {
       "wall": "white_concrete",
       "roof": "gray_concrete",
-      "roof_shape": "flat",
       "sign": "blue_concrete"
     },
-    "三菱UFJ銀行": {"wall": "white_concrete", "roof": "red_concrete",   "roof_shape": "flat", "sign": "red_concrete"},
-    "三井住友銀行": {"wall": "white_concrete", "roof": "green_concrete", "roof_shape": "flat", "sign": "green_concrete"},
-    "みずほ銀行":  {"wall": "white_concrete", "roof": "blue_concrete",  "roof_shape": "flat", "sign": "blue_concrete"},
-    "ゆうちょ銀行":{"wall": "white_concrete", "roof": "red_concrete",   "roof_shape": "flat", "sign": "red_concrete"}
+    "三菱UFJ銀行":     {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "三井住友銀行":     {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "みずほ銀行":       {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ゆうちょ銀行":     {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "りそな銀行":       {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "セブン銀行":       {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "イオン銀行":       {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"}
   },
-  "restaurant": {
+  "mobile_shop": {
     "_generic": {
       "wall": "white_concrete",
-      "roof": "brown_concrete",
-      "roof_shape": "gabled",
-      "sign": "orange_concrete"
+      "roof": "light_gray_concrete",
+      "sign": "light_blue_concrete"
     },
-    "サイゼリヤ":  {"wall": "white_concrete", "roof": "red_concrete",    "roof_shape": "flat",   "sign": "red_concrete"},
-    "ガスト":      {"wall": "white_concrete", "roof": "orange_concrete", "roof_shape": "flat",   "sign": "orange_concrete"},
-    "デニーズ":    {"wall": "white_concrete", "roof": "orange_concrete", "roof_shape": "flat",   "sign": "orange_concrete"},
-    "ジョナサン":  {"wall": "white_concrete", "roof": "green_concrete",  "roof_shape": "gabled", "sign": "green_concrete"},
-    "ロイヤルホスト":{"wall": "white_concrete","roof": "yellow_concrete", "roof_shape": "gabled", "sign": "yellow_concrete"}
+    "ドコモ":           {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "docomo":          {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "NTTドコモ":        {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "au":              {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "auショップ":       {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "SoftBank":        {"wall": "white_concrete", "roof": "light_gray_concrete", "sign": "light_gray_concrete"},
+    "ソフトバンク":     {"wall": "white_concrete", "roof": "light_gray_concrete", "sign": "light_gray_concrete"},
+    "楽天モバイル":     {"wall": "white_concrete", "roof": "pink_concrete",   "sign": "pink_concrete"},
+    "Rakuten Mobile":  {"wall": "white_concrete", "roof": "pink_concrete",   "sign": "pink_concrete"},
+    "ワイモバイル":     {"wall": "white_concrete", "roof": "magenta_concrete","sign": "magenta_concrete"},
+    "Y!mobile":        {"wall": "white_concrete", "roof": "magenta_concrete","sign": "magenta_concrete"},
+    "UQmobile":        {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "UQ mobile":       {"wall": "white_concrete", "roof": "green_concrete",  "sign": "green_concrete"},
+    "格安SIM":          {"wall": "white_concrete", "roof": "light_blue_concrete","sign": "light_blue_concrete"}
+  },
+  "home_electronics": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "blue_concrete",
+      "sign": "blue_concrete"
+    },
+    "ヤマダ電機":       {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "yellow_concrete"},
+    "ヤマダデンキ":     {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "yellow_concrete"},
+    "ビックカメラ":     {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "red_concrete"},
+    "ヨドバシカメラ":   {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "エディオン":       {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "ケーズデンキ":     {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "コジマ":           {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ノジマ":           {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"}
   },
   "school": {
     "_generic": {
       "wall": "white_concrete",
       "roof": "cyan_concrete",
-      "roof_shape": "flat",
       "sign": "cyan_concrete"
     }
   },
@@ -118,7 +176,6 @@
     "_generic": {
       "wall": "white_concrete",
       "roof": "white_concrete",
-      "roof_shape": "flat",
       "sign": "red_concrete"
     }
   },
@@ -126,11 +183,139 @@
     "_generic": {
       "wall": "white_concrete",
       "roof": "gray_concrete",
-      "roof_shape": "flat",
       "sign": "yellow_concrete"
     },
-    "東横INN":   {"wall": "white_concrete", "roof": "blue_concrete", "roof_shape": "flat", "sign": "blue_concrete"},
-    "アパホテル": {"wall": "white_concrete", "roof": "red_concrete",  "roof_shape": "flat", "sign": "red_concrete"},
-    "ルートイン": {"wall": "white_concrete", "roof": "blue_concrete", "roof_shape": "flat", "sign": "blue_concrete"}
+    "東横INN":          {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "アパホテル":       {"wall": "white_concrete", "roof": "red_concrete",    "sign": "red_concrete"},
+    "ルートイン":       {"wall": "white_concrete", "roof": "blue_concrete",   "sign": "blue_concrete"},
+    "スーパーホテル":   {"wall": "white_concrete", "roof": "orange_concrete", "sign": "orange_concrete"},
+    "コンフォートホテル":{"wall": "white_concrete","roof": "blue_concrete",   "sign": "blue_concrete"},
+    "ドーミーイン":     {"wall": "white_concrete", "roof": "brown_concrete",  "sign": "brown_concrete"}
+  },
+  "clothing": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "light_gray_concrete",
+      "sign": "light_gray_concrete"
+    },
+    "ユニクロ":         {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "UNIQLO":          {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "GU":              {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "ジーユー":         {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "しまむら":         {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "無印良品":         {"wall": "white_concrete", "roof": "light_gray_concrete", "sign": "light_gray_concrete"},
+    "MUJI":            {"wall": "white_concrete", "roof": "light_gray_concrete", "sign": "light_gray_concrete"},
+    "ワークマン":       {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "yellow_concrete"},
+    "洋服の青山":       {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "AOKI":            {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "はるやま":         {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"}
+  },
+  "food_takeout": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "orange_concrete",
+      "sign": "orange_concrete"
+    },
+    "ほっともっと":     {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "HottoMotto":      {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "オリジン弁当":     {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "丸亀製麺":         {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "はなまるうどん":   {"wall": "white_concrete", "roof": "yellow_concrete",     "sign": "yellow_concrete"},
+    "かつや":           {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "松のや":           {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "天丼てんや":       {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "ゆで太郎":         {"wall": "white_concrete", "roof": "green_concrete",      "sign": "green_concrete"},
+    "富士そば":         {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"}
+  },
+  "izakaya": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "brown_concrete",
+      "sign": "orange_concrete"
+    },
+    "鳥貴族":           {"wall": "white_concrete", "roof": "brown_concrete",      "sign": "yellow_concrete"},
+    "串カツ田中":       {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "やきとり大吉":     {"wall": "white_concrete", "roof": "red_concrete",        "sign": "yellow_concrete"},
+    "養老乃瀧":         {"wall": "white_concrete", "roof": "brown_concrete",      "sign": "brown_concrete"},
+    "庄や":             {"wall": "white_concrete", "roof": "brown_concrete",      "sign": "brown_concrete"},
+    "魚民":             {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "モンテローザ":     {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"}
+  },
+  "hundred_yen": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "red_concrete",
+      "sign": "red_concrete"
+    },
+    "ダイソー":         {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "DAISO":           {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "セリア":           {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "Seria":           {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "キャンドゥ":       {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "ワッツ":           {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"}
+  },
+  "home_center": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "green_concrete",
+      "sign": "green_concrete"
+    },
+    "コメリ":           {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "カインズ":         {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "コーナン":         {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "ナフコ":           {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "DCM":             {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"},
+    "ケーヨーデイツー": {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "島忠":             {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "ムサシ":           {"wall": "white_concrete", "roof": "green_concrete",      "sign": "green_concrete"}
+  },
+  "sports": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "blue_concrete",
+      "sign": "blue_concrete"
+    },
+    "アルペン":         {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "ゼビオ":           {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "スポーツデポ":     {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "ヒマラヤ":         {"wall": "white_concrete", "roof": "green_concrete",      "sign": "green_concrete"},
+    "UNIQLO":          {"wall": "white_concrete", "roof": "red_concrete",        "sign": "red_concrete"}
+  },
+  "karaoke": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "purple_concrete",
+      "sign": "yellow_concrete"
+    },
+    "ビッグエコー":     {"wall": "white_concrete", "roof": "red_concrete",        "sign": "yellow_concrete"},
+    "カラオケ館":       {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "yellow_concrete"},
+    "ジョイサウンド":   {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"},
+    "まねきねこ":       {"wall": "white_concrete", "roof": "yellow_concrete",     "sign": "red_concrete"},
+    "カラオケバンバン": {"wall": "white_concrete", "roof": "purple_concrete",     "sign": "yellow_concrete"}
+  },
+  "parking": {
+    "_generic": {
+      "wall": "gray_concrete",
+      "roof": "gray_concrete",
+      "sign": "yellow_concrete"
+    },
+    "タイムズ":         {"wall": "gray_concrete",  "roof": "yellow_concrete",     "sign": "black_concrete"},
+    "Times":           {"wall": "gray_concrete",  "roof": "yellow_concrete",     "sign": "black_concrete"},
+    "三井のリパーク":   {"wall": "gray_concrete",  "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "NPC24H":          {"wall": "gray_concrete",  "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "パーク24":         {"wall": "gray_concrete",  "roof": "yellow_concrete",     "sign": "black_concrete"}
+  },
+  "book_media": {
+    "_generic": {
+      "wall": "white_concrete",
+      "roof": "blue_concrete",
+      "sign": "blue_concrete"
+    },
+    "TSUTAYA":         {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "ゲオ":             {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "GEO":             {"wall": "white_concrete", "roof": "blue_concrete",       "sign": "blue_concrete"},
+    "ブックオフ":       {"wall": "white_concrete", "roof": "yellow_concrete",     "sign": "blue_concrete"},
+    "BOOKOFF":         {"wall": "white_concrete", "roof": "yellow_concrete",     "sign": "blue_concrete"},
+    "紀伊國屋書店":     {"wall": "white_concrete", "roof": "orange_concrete",     "sign": "orange_concrete"}
   }
 }
