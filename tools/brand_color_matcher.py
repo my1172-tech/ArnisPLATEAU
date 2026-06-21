@@ -8,23 +8,43 @@ import os
 from typing import Optional, Dict
 
 OSM_TAG_TO_CATEGORY = {
+    # コンビニ・スーパー
     "convenience":      "convenience",
     "supermarket":      "supermarket",
+    "mall":             "supermarket",
+    "department_store": "supermarket",
+    # 飲食
+    "fast_food":        "fast_food",
+    "restaurant":       "restaurant",
+    "cafe":             "restaurant",
+    "pub":              "restaurant",
+    "bar":              "restaurant",
+    # 薬局・ドラッグ
     "pharmacy":         "pharmacy",
     "chemist":          "pharmacy",
     "drug_store":       "pharmacy",
-    "clothes":          "retail",
-    "department_store": "supermarket",
-    "fast_food":        "fast_food",
-    "restaurant":       "restaurant",
-    "bank":             "bank",
-    "fuel":             "gas_station",
+    # 医療
     "hospital":         "hospital",
     "clinic":           "hospital",
+    "dentist":          "hospital",
+    "doctors":          "hospital",
+    "veterinary":       "hospital",
+    "nursing_home":     "hospital",
+    # 教育
     "school":           "school",
     "university":       "school",
+    "kindergarten":     "school",
+    "language_school":  "school",
+    "music_school":     "school",
+    "prep_school":      "school",
+    # 金融
+    "bank":             "bank",
+    # ガソリンスタンド
+    "fuel":             "gas_station",
+    # 宿泊
     "hotel":            "hotel",
-    "cafe":             "restaurant",
+    # 小売
+    "clothes":          "retail",
 }
 
 BLOCK_TO_HEX = {
