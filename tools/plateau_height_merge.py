@@ -232,6 +232,7 @@ def build_osm_height_patch(
     sv_limit: int = 50,
     building_details: list = None,
     calibration_data: dict = None,
+    log_fn=None,
 ) -> tuple:
     """
     OSMデータの建物height属性をPLATEAU実測値で上書きした新しいosm_dataと更新棟数を返す。
@@ -242,6 +243,8 @@ def build_osm_height_patch(
     Returns:
         (patched_osm_data: dict, patch_count: int)
     """
+    if log_fn is None:
+        log_fn = print
     patched = copy.deepcopy(osm_data)
 
     # height_overrides を3種に分類
@@ -328,7 +331,7 @@ def build_osm_height_patch(
                     apply_building_detail(target_bd, detail)
                     patch_count += 1
                     _t = target_bd.get("tags", {})
-                    print(
+                    log_fn(
                         f"[building_details] {detail.get('name', '?')} → "
                         f"壁色:{_t.get('building:colour', 'なし')} "
                         f"高さ:{detail.get('height_m', '?')}m "

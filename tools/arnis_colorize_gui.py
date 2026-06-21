@@ -826,6 +826,7 @@ class ArnisColorizeGUI:
                             sv_limit=self.sv_limit_var.get(),
                             building_details=self.building_details,
                             calibration_data=getattr(self, "calibration_data", {}),
+                            log_fn=self._log,
                         )
 
                         with open(osm_plateau_path, "w", encoding="utf-8") as f:
