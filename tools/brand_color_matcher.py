@@ -13,12 +13,16 @@ OSM_TAG_TO_CATEGORY = {
     "supermarket":      "supermarket",
     "mall":             "supermarket",
     "department_store": "supermarket",
-    # 飲食
+    # 飲食（restaurant カテゴリは新JSONでは fast_food にマージ）
     "fast_food":        "fast_food",
-    "restaurant":       "restaurant",
-    "cafe":             "restaurant",
-    "pub":              "restaurant",
-    "bar":              "restaurant",
+    "restaurant":       "fast_food",
+    "cafe":             "fast_food",
+    "pub":              "izakaya",
+    "bar":              "izakaya",
+    # テイクアウト
+    "food":             "food_takeout",
+    # 居酒屋
+    "izakaya":          "izakaya",
     # 薬局・ドラッグ
     "pharmacy":         "pharmacy",
     "chemist":          "pharmacy",
@@ -64,6 +68,8 @@ OSM_TAG_TO_CATEGORY = {
     # その他
     "parking":          "parking",
     "karaoke":          "karaoke",
+    # 100円ショップ
+    "variety_store":    "hundred_yen",
 }
 
 BLOCK_TO_HEX = {
@@ -154,7 +160,7 @@ def match_brand_color(
     result = {}
     wall_block = brand_entry.get("wall", "")
     roof_block = brand_entry.get("roof", "")
-    roof_shape = brand_entry.get("roof_shape", "")
+    roof_shape = brand_entry.get("roof_shape", "flat")  # デフォルト flat
 
     if wall_block in BLOCK_TO_HEX:
         result["building:colour"] = BLOCK_TO_HEX[wall_block]
