@@ -7,6 +7,23 @@ import json
 import os
 from typing import Optional, Dict
 
+# 建物を持たない施設タグ — match_brand_color() でスキップ
+_NON_BUILDING_AMENITIES = {
+    "bus_stop", "bench", "waste_basket", "recycling",
+    "bicycle_parking", "bicycle_rental", "bicycle_repair_station",
+    "drinking_water", "water_point",
+    "post_box", "telephone", "vending_machine",
+    "toilets", "shower",
+    "parking_entrance", "parking_space",
+    "charging_station", "car_sharing",
+    "taxi", "atm",
+    "car_rental", "boat_rental",
+    "grave_yard", "wayside_cross", "wayside_shrine",
+    "clock", "fire_hydrant", "emergency_phone",
+    "surveillance", "post_depot",
+    "give_way", "stop",
+}
+
 OSM_TAG_TO_CATEGORY = {
     # コンビニ・スーパー
     "convenience":      "convenience",
@@ -130,6 +147,10 @@ def match_brand_color(
     戻り値: {"building:colour": "#RRGGBB", "roof:colour": "#RRGGBB"} or None
     """
     if not brand_db:
+        return None
+
+    # 建物を持たないインフラ施設はスキップ
+    if tags.get("amenity", "") in _NON_BUILDING_AMENITIES:
         return None
 
     category = None
