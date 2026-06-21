@@ -43,8 +43,27 @@ OSM_TAG_TO_CATEGORY = {
     "fuel":             "gas_station",
     # 宿泊
     "hotel":            "hotel",
-    # 小売
-    "clothes":          "retail",
+    # 小売・アパレル
+    "clothes":          "clothing",
+    "sports":           "sports",
+    # 家電・モバイル
+    "electronics":      "home_electronics",
+    "mobile_phone":     "mobile_shop",
+    # ホームセンター
+    "hardware":         "home_center",
+    "doityourself":     "home_center",
+    # 本・メディア
+    "books":            "book_media",
+    "video_games":      "book_media",
+    "music":            "book_media",
+    # 酒類
+    "alcohol":          "fast_food",
+    # 自動車
+    "car":              "gas_station",
+    "car_parts":        "gas_station",
+    # その他
+    "parking":          "parking",
+    "karaoke":          "karaoke",
 }
 
 BLOCK_TO_HEX = {
