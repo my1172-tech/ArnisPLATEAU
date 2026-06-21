@@ -284,6 +284,13 @@ def build_osm_height_patch(
     # 要素検索を高速化するため id → elem の逆引き辞書を作成
     elem_by_id = {e.get("id"): e for e in patched.get("elements", []) if e.get("id") is not None}
 
+    # 中心座標計算用: node id → (lat, lon)（center フィールド不在時のフォールバック用・常時作成）
+    _bd_node_map = {
+        e["id"]: (e.get("lat", 0.0), e.get("lon", 0.0))
+        for e in patched.get("elements", [])
+        if e.get("type") == "node"
+    }
+
     # 屋根色取得用: node id → (lon, lat) の逆引き辞書
     node_map = {
         e["id"]: (e.get("lon", 0.0), e.get("lat", 0.0))
@@ -318,6 +325,20 @@ def build_osm_height_patch(
         center_lat = sum(p[0] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
         center_lon = sum(p[1] for p in polygon) / len(polygon) if len(polygon) >= 3 else None
 
+        # polygon が空の場合: center フィールド → ノード重心 の順でフォールバック
+        if center_lat is None:
+            _raw = elem_by_id.get(osm_id)
+            if _raw is not None:
+                _c = _raw.get("center", {})
+                if _c:
+                    center_lat = _c.get("lat")
+                    center_lon = _c.get("lon")
+                else:
+                    _pts = [_bd_node_map[nid] for nid in _raw.get("nodes", []) if nid in _bd_node_map]
+                    if _pts:
+                        center_lat = sum(p[0] for p in _pts) / len(_pts)
+                        center_lon = sum(p[1] for p in _pts) / len(_pts)
+
         # 優先0: building_details.json（座標マッチング・最高優先）
         if building_details and center_lat is not None:
             target_bd = elem_by_id.get(osm_id)
@@ -325,6 +346,7 @@ def build_osm_height_patch(
                 from building_details_loader import find_building_detail, apply_building_detail
                 detail = find_building_detail(
                     building_details, center_lat, center_lon,
+                    max_dist_m=max_dist_m,
                     bbox=_bd_bbox, mc_width=_bd_mc_width, mc_height=_bd_mc_height,
                 )
                 if detail:
