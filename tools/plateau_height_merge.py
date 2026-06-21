@@ -403,6 +403,11 @@ def build_osm_height_patch(
                         _brand_elem["tags"][_k] = _v
                     if "building:colour" in brand_colours:
                         _brand_elem["tags"].setdefault("building", "commercial")
+                    log_fn(
+                        f"[brand_colors] {_brand_elem.get('tags', {}).get('name', '?')}: "
+                        f"building:colour={brand_colours.get('building:colour', 'なし')} "
+                        f"roof:shape={brand_colours.get('roof:shape', 'なし')}"
+                    )
 
         # 優先5: PLATEAU APIマッチング
         if height is None and plateau_buildings and center_lat is not None:
