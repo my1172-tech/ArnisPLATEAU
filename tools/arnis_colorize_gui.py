@@ -943,6 +943,10 @@ class ArnisColorizeGUI:
                             calibration_data=getattr(self, "calibration_data", {}),
                             brand_db=brand_db,
                             building_threshold=self.building_threshold_var.get(),
+                            result_output_path=os.path.join(
+                                os.path.dirname(self.arnis_exe_var.get() or sys.executable),
+                                "brand_colors_result.json"
+                            ) if brand_db else None,
                             log_fn=self._log,
                         )
 

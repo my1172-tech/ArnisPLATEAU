@@ -9,7 +9,7 @@ import os
 import re
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, filedialog
 import urllib.parse
 import urllib.request
 
@@ -210,6 +210,20 @@ class BuildingHeightEditor:
             frame_brand, text="基本テンプレート使用中", fg="gray", font=("", 9)
         )
         self.brand_status_label.pack(side="left", padx=8)
+
+        # ブランドカラー結果取り込みボタン
+        frame_brand_result = tk.Frame(self.dialog)
+        frame_brand_result.pack(anchor="w", padx=8, pady=(2, 0), fill="x")
+        tk.Button(
+            frame_brand_result,
+            text="📊 ブランドカラー結果を取り込む",
+            command=self._load_brand_result_dialog,
+            font=("", 9),
+        ).pack(side="left")
+        self.brand_result_label = tk.Label(
+            frame_brand_result, text="", fg="gray", font=("", 9)
+        )
+        self.brand_result_label.pack(side="left", padx=8)
 
         # フィルタ行
         self._filter_frame = tk.Frame(self.dialog)
@@ -633,6 +647,58 @@ class BuildingHeightEditor:
         self.brand_status_label.config(
             text=f"カスタム: {os.path.basename(path)}", fg="green"
         )
+
+    def _load_brand_result_dialog(self):
+        """brand_colors_result.json を読み込んで height_overrides に統合"""
+        import json
+        path = filedialog.askopenfilename(
+            title="ブランドカラー結果JSONを選択",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            buildings = data.get("buildings", [])
+            if not buildings:
+                tk.messagebox.showwarning("データなし", "建物データが見つかりません。")
+                return
+            overrides = self.height_overrides.get("overrides", [])
+            updated = 0
+            added = 0
+            for b in buildings:
+                osm_id = b.get("osm_id")
+                if not osm_id:
+                    continue
+                existing = next(
+                    (o for o in overrides if o.get("osm_id") == osm_id), None
+                )
+                if existing:
+                    existing["building_colour"] = b.get("building_colour", "")
+                    existing["roof_colour"] = b.get("roof_colour", "")
+                    existing["roof_shape"] = b.get("roof_shape", "")
+                    updated += 1
+                else:
+                    overrides.append({
+                        "osm_id": osm_id,
+                        "name": b.get("name", ""),
+                        "lat": b.get("lat"),
+                        "lon": b.get("lon"),
+                        "height_m": None,
+                        "building_colour": b.get("building_colour", ""),
+                        "roof_colour": b.get("roof_colour", ""),
+                        "roof_shape": b.get("roof_shape", ""),
+                        "source": "brand_result",
+                    })
+                    added += 1
+            self.height_overrides["overrides"] = overrides
+            self.brand_result_label.config(
+                text=f"取り込み済み: {len(buildings)}棟（更新{updated}・追加{added}）",
+                fg="green",
+            )
+        except Exception as e:
+            tk.messagebox.showerror("読み込みエラー", f"JSONの読み込みに失敗しました:\n{e}")
 
     def _on_auto_fetch_toggle(self):
         if self.auto_fetch_var.get():

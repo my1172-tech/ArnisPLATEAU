@@ -232,6 +232,15 @@ def build_height_corrections(
     return corrections
 
 
+def _get_category(tags: dict) -> str:
+    from brand_color_matcher import OSM_TAG_TO_CATEGORY
+    for key in ("shop", "amenity", "building"):
+        val = tags.get(key, "")
+        if val in OSM_TAG_TO_CATEGORY:
+            return OSM_TAG_TO_CATEGORY[val]
+    return ""
+
+
 def build_osm_height_patch(
     bbox: dict,
     osm_data: dict,
@@ -247,6 +256,7 @@ def build_osm_height_patch(
     calibration_data: dict = None,
     brand_db: dict = None,
     building_threshold: int = None,
+    result_output_path: str = None,
     log_fn=None,
 ) -> tuple:
     """
@@ -330,6 +340,7 @@ def build_osm_height_patch(
     sv_count = 0
     sv_level_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 
+    brand_results = []
     patch_count = 0
     for osm_b in osm_buildings:
         osm_id = osm_b.get("id")
@@ -419,6 +430,18 @@ def build_osm_height_patch(
                     if "building:colour" in brand_colours:
                         _brand_elem["tags"].setdefault("building", "commercial")
                     brand_applied = True
+                    brand_results.append({
+                        "osm_id": osm_id,
+                        "name": _brand_elem.get("tags", {}).get("name", ""),
+                        "lat": round(center_lat, 6) if center_lat is not None else None,
+                        "lon": round(center_lon, 6) if center_lon is not None else None,
+                        "category": _get_category(_brand_elem.get("tags", {})),
+                        "building_colour": brand_colours.get("building:colour", ""),
+                        "roof_colour": brand_colours.get("roof:colour", ""),
+                        "roof_shape": brand_colours.get("roof:shape", ""),
+                        "building_type": _brand_elem.get("tags", {}).get("building", ""),
+                        "source": "brand_db",
+                    })
                     log_fn(
                         f"[brand_colors] {_brand_elem.get('tags', {}).get('name', '?')}: "
                         f"building:colour={brand_colours.get('building:colour', 'なし')} "
@@ -523,5 +546,20 @@ def build_osm_height_patch(
                 elem["tags"]["surface"] = surface_val
                 road_count += 1
         log_fn(f"[plateau_height_merge] 道路色: {road_count}件のhighway wayにsurface={surface_val}を設定")
+
+    # brand_results を JSON に出力
+    if result_output_path and brand_results:
+        import datetime
+        result_data = {
+            "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_matched": len(brand_results),
+            "buildings": brand_results,
+        }
+        try:
+            with open(result_output_path, "w", encoding="utf-8") as f:
+                json.dump(result_data, f, ensure_ascii=False, indent=2)
+            log_fn(f"[brand_colors] 結果を保存: {result_output_path}（{len(brand_results)}棟）")
+        except Exception as e:
+            log_fn(f"[brand_colors] 結果保存失敗: {e}")
 
     return patched, patch_count
