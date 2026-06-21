@@ -267,19 +267,19 @@ def build_osm_height_patch(
 
     total_overrides = len(manual_coord_overrides) + len(manual_id_overrides) + len(plateau_id_overrides)
     plateau_buildings = fetch_plateau_buildings(bbox)
-    if not plateau_buildings and total_overrides == 0:
-        print("[plateau_height_merge] PLATEAUデータなし・overridesなし → OSMパッチをスキップ")
+    if not plateau_buildings and total_overrides == 0 and not building_details:
+        log_fn("[plateau_height_merge] PLATEAUデータなし・overridesなし・building_detailsなし → OSMパッチをスキップ")
         return patched, 0
 
     osm_buildings = extract_buildings_with_polygons(osm_data)
     if not osm_buildings:
-        print("[plateau_height_merge] OSM建物なし → OSMパッチをスキップ")
+        log_fn("[plateau_height_merge] OSM建物なし → OSMパッチをスキップ")
         return patched, 0
 
-    print(f"[plateau_height_merge] build_osm_height_patch: "
-          f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟"
-          f" / manual_coord {len(manual_coord_overrides)} / manual_id {len(manual_id_overrides)}"
-          f" / plateau_id {len(plateau_id_overrides)}")
+    log_fn(f"[plateau_height_merge] build_osm_height_patch: "
+           f"OSM {len(osm_buildings)}棟 / PLATEAU {len(plateau_buildings)}棟"
+           f" / manual_coord {len(manual_coord_overrides)} / manual_id {len(manual_id_overrides)}"
+           f" / plateau_id {len(plateau_id_overrides)}")
 
     # 要素検索を高速化するため id → elem の逆引き辞書を作成
     elem_by_id = {e.get("id"): e for e in patched.get("elements", []) if e.get("id") is not None}
