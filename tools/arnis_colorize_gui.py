@@ -10,7 +10,7 @@ import threading
 import zipfile
 import shutil
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog
 import time
 import tempfile
 from datetime import datetime
@@ -126,9 +126,9 @@ class ArnisColorizeGUI:
 
         # ウィンドウタイトル
         if PRO_MODE:
-            title = "ArnisPLATEAU Pro v0.2.0" if not DEV_MODE else "ArnisPLATEAU Pro v0.2.0 [DEV]"
+            title = "ArnisPLATEAU Pro β" if not DEV_MODE else "ArnisPLATEAU Pro β [DEV]"
         else:
-            title = "ArnisPLATEAU v0.2.0"
+            title = "ArnisPLATEAU β"
         self.root.title(title)
         self.root.resizable(True, True)
 
@@ -143,7 +143,7 @@ class ArnisColorizeGUI:
         self.world_folder = tk.StringVar(value="")
 
         # 出力形式設定（Java / 統合版 / Luanti）
-        self.output_format = tk.StringVar(value="java")
+        self.output_format = tk.StringVar(value="bedrock")
         self.mcworld_enabled = tk.BooleanVar(value=True)
         self.mcworld_save_dir = tk.StringVar(value="")
         self.luanti_output_dir = tk.StringVar(value="")
@@ -161,6 +161,9 @@ class ArnisColorizeGUI:
 
         # PLATEAU距離フィルタ設定
         self.plateau_dist_m = tk.IntVar(value=50)
+
+        # 一軒家/ビル切替え高さ（ブロック数）
+        self.building_threshold_var = tk.IntVar(value=15)
 
         # 道路色設定
         self.road_color_var = tk.StringVar(value="")
@@ -193,6 +196,7 @@ class ArnisColorizeGUI:
 
         # config.json から設定を復元
         self._config_path = os.path.join(self.base_dir, "config.json")
+        self.config: dict = {"favorites": []}
         self._load_config()
 
         self._build_ui()
@@ -203,7 +207,6 @@ class ArnisColorizeGUI:
 
         self._build_status_bar(inner)
         self._build_top_row(inner)
-        self._build_calibration_section(inner)
         self._build_gsi_section(inner)
         self._build_engine_section(inner)
         self._build_world_gen_section(inner)
@@ -258,7 +261,7 @@ class ArnisColorizeGUI:
 
         if not PRO_MODE:
             tk.Label(frame,
-                     text="ArnisPLATEAU  —  リアルな日本の街をMinecraftで再現",
+                     text="ArnisPLATEAU β  —  リアルな日本の街をMinecraftで再現",
                      bg="#1E3A5F", fg="#FFFFFF",
                      font=("Arial", 10, "bold")).pack(side="left", padx=12)
             return
@@ -333,6 +336,92 @@ class ArnisColorizeGUI:
             fg="gray", font=("", 9)
         )
         self.lbl_spawn_info.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+        # お気に入りエリア登録
+        fav_btn_frame = tk.Frame(frame)
+        fav_btn_frame.grid(row=5, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        tk.Button(
+            fav_btn_frame, text="★ お気に入りに登録",
+            command=self._save_bbox_favorite, font=("", 9),
+        ).pack(side="left")
+
+        self._fav_container = tk.Frame(frame)
+        self._fav_container.grid(row=6, column=0, columnspan=4, sticky="w", pady=(2, 0))
+        self._render_bbox_favorites()
+
+    # ── bboxお気に入りエリア管理 ──────────────────────────────────────────────
+
+    def _save_bbox_favorite(self):
+        bbox = self._get_current_bbox()
+        if not bbox:
+            messagebox.showwarning("未選択", "先にエリアを選択してください。")
+            return
+        favorites = self.config.get("favorites", [])
+        if len(favorites) >= 5:
+            messagebox.showwarning("上限", "お気に入りは5件までです。削除してから登録してください。")
+            return
+        name = simpledialog.askstring(
+            "お気に入り登録",
+            "登録名を入力してください（例: 佐賀市ゆめタウン）:",
+            initialvalue=f"エリア{len(favorites) + 1}",
+        )
+        if not name:
+            return
+        favorites.append({
+            "name": name,
+            "bbox": bbox,
+            "spawn_lat": self.spawn_lat,
+            "spawn_lon": self.spawn_lon,
+        })
+        self.config["favorites"] = favorites
+        self._save_config()
+        self._render_bbox_favorites()
+
+    def _render_bbox_favorites(self):
+        if not hasattr(self, "_fav_container"):
+            return
+        for w in self._fav_container.winfo_children():
+            w.destroy()
+        favorites = self.config.get("favorites", [])
+        for i, fav in enumerate(favorites):
+            row = tk.Frame(self._fav_container)
+            row.pack(anchor="w", pady=1)
+            name_var = tk.StringVar(value=fav["name"])
+            tk.Entry(row, textvariable=name_var, width=20, font=("", 9)).pack(side="left")
+            def _on_name(var=name_var, idx=i):
+                self.config["favorites"][idx]["name"] = var.get()
+                self._save_config()
+            name_var.trace_add("write", lambda *a, f=_on_name: f())
+            tk.Button(
+                row, text="読み込み", font=("", 8),
+                command=lambda f=fav: self._load_bbox_favorite(f),
+            ).pack(side="left", padx=2)
+            tk.Button(
+                row, text="削除", font=("", 8),
+                command=lambda idx=i: self._delete_bbox_favorite(idx),
+            ).pack(side="left")
+
+    def _load_bbox_favorite(self, fav):
+        bbox = fav["bbox"]
+        self.bbox_min_lat.set(f"{bbox['min_lat']:.6f}")
+        self.bbox_max_lat.set(f"{bbox['max_lat']:.6f}")
+        self.bbox_min_lon.set(f"{bbox['min_lon']:.6f}")
+        self.bbox_max_lon.set(f"{bbox['max_lon']:.6f}")
+        if fav.get("spawn_lat") and fav.get("spawn_lon"):
+            self.spawn_lat = fav["spawn_lat"]
+            self.spawn_lon = fav["spawn_lon"]
+            if hasattr(self, "lbl_spawn_info"):
+                self.lbl_spawn_info.config(
+                    text=f"スポーン地点: {self.spawn_lat:.6f}, {self.spawn_lon:.6f}"
+                )
+
+    def _delete_bbox_favorite(self, idx):
+        favorites = self.config.get("favorites", [])
+        if 0 <= idx < len(favorites):
+            favorites.pop(idx)
+        self.config["favorites"] = favorites
+        self._save_config()
+        self._render_bbox_favorites()
 
     def _open_map_picker(self):
         import tempfile
@@ -488,62 +577,25 @@ class ArnisColorizeGUI:
         self._dist_frame = dist_frame
         self._on_plateau_toggle()  # 初期状態を反映
 
-        # 道路色ラジオボタン
-        road_frame = tk.LabelFrame(frame, text="道路色", padx=8, pady=4)
-        road_frame.pack(fill="x", pady=(8, 0))
-        for label, value in ROAD_COLOR_OPTIONS:
-            tk.Radiobutton(
-                road_frame,
-                text=label,
-                variable=self.road_color_var,
-                value=value,
-            ).pack(anchor="w", padx=4)
-
-        # 屋根色自動取得チェックボックス
-        tk.Checkbutton(
-            frame,
-            text="衛星画像から屋根色を自動取得（PLATEAUなし建物）",
-            variable=self.roof_color_var,
-        ).pack(anchor="w", pady=(6, 0))
-        tk.Label(
-            frame,
-            text="※ 国土地理院シームレス衛星写真を使用。建物数が多い場合は時間がかかります",
-            fg="gray", font=("", 8),
-        ).pack(anchor="w")
-
-        # Street View 壁色取得セクション
-        frame_sv = tk.LabelFrame(frame, text="Street View 壁色取得", padx=8, pady=4)
-        frame_sv.pack(fill="x", pady=(8, 0))
-
-        tk.Label(frame_sv, text="Google APIキー:", font=("", 8)).pack(anchor="w")
-        tk.Entry(frame_sv, textvariable=self.sv_api_key_var,
-                 show="*", width=40, font=("", 8)).pack(anchor="w", pady=(0, 4))
-
-        tk.Checkbutton(
-            frame_sv,
-            text="Street View から壁色を自動取得（$0.007/棟）",
-            variable=self.apply_building_color_var,
-            font=("", 9),
-        ).pack(anchor="w")
-        tk.Label(
-            frame_sv,
-            text="※ PLATEAU非マッチ建物のみ対象。APIキー未入力時は無効",
-            fg="gray", font=("", 8),
-        ).pack(anchor="w")
-
-        frame_sv_limit = tk.Frame(frame_sv)
-        frame_sv_limit.pack(anchor="w", pady=(4, 0))
-        tk.Label(frame_sv_limit, text="取得上限:", font=("", 8)).pack(side="left")
-        tk.Spinbox(
-            frame_sv_limit, from_=1, to=9999, increment=10,
-            textvariable=self.sv_limit_var, width=6, font=("", 8),
-        ).pack(side="left", padx=4)
-        tk.Label(frame_sv_limit, text="棟", font=("", 8)).pack(side="left")
-
-        self._sv_cost_label = tk.Label(frame_sv, text="", fg="#d97706", font=("", 8))
-        self._sv_cost_label.pack(anchor="w")
-        self.sv_limit_var.trace_add("write", self._update_sv_cost)
-        self._update_sv_cost()
+        # 一軒家/ビル切替え高さスライダー
+        thresh_frame = tk.Frame(frame)
+        thresh_frame.pack(anchor="w", padx=(0, 0), pady=(8, 0), fill="x")
+        tk.Label(thresh_frame, text="一軒家/ビル切替え高さ:").pack(anchor="w")
+        frame_slider = tk.Frame(thresh_frame)
+        frame_slider.pack(anchor="w", fill="x")
+        self._threshold_label = tk.Label(
+            frame_slider,
+            text=f"{self.building_threshold_var.get()}ブロック以上をビル",
+            width=20, anchor="w",
+        )
+        self._threshold_label.pack(side="right")
+        tk.Scale(
+            frame_slider,
+            from_=10, to=25,
+            orient="horizontal",
+            variable=self.building_threshold_var,
+            command=lambda v: self._threshold_label.config(text=f"{v}ブロック以上をビル"),
+        ).pack(side="left", fill="x", expand=True)
 
     # ── 生成エンジンセクション (TASK 23) ─────────────────────────────────────
 
@@ -1566,7 +1618,8 @@ class ArnisColorizeGUI:
                 with open(self._config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 self.plateau_dist_m.set(int(cfg.get("plateau_dist_m", 50)))
-                self.output_format.set(cfg.get("output_format", "java"))
+                self.config = cfg
+                self.output_format.set(cfg.get("output_format", "bedrock"))
                 self.mcworld_enabled.set(bool(cfg.get("mcworld_enabled", True)))
                 self.mcworld_save_dir.set(
                     cfg.get("mcworld_save_dir", self._get_downloads_dir()))
@@ -1580,6 +1633,8 @@ class ArnisColorizeGUI:
                 self.use_arnis_jp_var.set(bool(cfg.get("use_arnis_jp_stage2", False)))
                 self.use_satellite_var.set(bool(cfg.get("use_satellite", True)))
                 self.use_gsi_var.set(bool(cfg.get("use_gsi", True)))
+                self.building_threshold_var.set(int(cfg.get("building_threshold", 15)))
+                self.config["favorites"] = cfg.get("favorites", [])
         except Exception:
             pass
         # デフォルトのダウンロードフォルダを未設定時に補完
@@ -1606,6 +1661,8 @@ class ArnisColorizeGUI:
             cfg["use_arnis_jp_stage2"] = self.use_arnis_jp_var.get()
             cfg["use_satellite"] = self.use_satellite_var.get()
             cfg["use_gsi"] = self.use_gsi_var.get()
+            cfg["building_threshold"] = self.building_threshold_var.get()
+            cfg["favorites"] = self.config.get("favorites", [])
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:

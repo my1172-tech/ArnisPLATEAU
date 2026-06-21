@@ -174,6 +174,7 @@ class BuildingHeightEditor:
             self.dialog,
             text="自動取得（Overpass / Wikipedia / Web）を実行する",
             variable=self.auto_fetch_var,
+            command=self._on_auto_fetch_toggle,
             font=("", 9),
         ).pack(anchor="w", padx=8, pady=(0, 4))
 
@@ -211,18 +212,19 @@ class BuildingHeightEditor:
         self.brand_status_label.pack(side="left", padx=8)
 
         # フィルタ行
-        filter_frame = tk.Frame(self.dialog)
-        filter_frame.pack(fill="x", padx=8, pady=(0, 4))
-        tk.Label(filter_frame, text="フィルタ:").pack(side="left")
+        self._filter_frame = tk.Frame(self.dialog)
+        self._filter_frame.pack(fill="x", padx=8, pady=(0, 4))
+        tk.Label(self._filter_frame, text="フィルタ:").pack(side="left")
         for label in FILTER_OPTIONS:
             tk.Radiobutton(
-                filter_frame, text=label,
+                self._filter_frame, text=label,
                 variable=self._filter_var, value=label,
                 command=self._apply_filter,
             ).pack(side="left", padx=4)
 
         # ヘッダー行
         hdr = tk.Frame(self.dialog, bg="#d1d5db")
+        self._list_header = hdr
         hdr.pack(fill="x", padx=8, pady=(0, 1))
         for text, w in [
             ("建物名", 20), ("OSM高さ", 8), ("PLATEAU", 9),
@@ -235,6 +237,7 @@ class BuildingHeightEditor:
 
         # スクロール可能テーブル
         table_outer = tk.Frame(self.dialog)
+        self._table_outer = table_outer
         table_outer.pack(fill="both", expand=True, padx=8)
         self._canvas = tk.Canvas(table_outer, highlightthickness=0)
         sb = tk.Scrollbar(table_outer, orient="vertical", command=self._canvas.yview)
@@ -253,6 +256,9 @@ class BuildingHeightEditor:
             "<Configure>",
             lambda e: self._canvas.itemconfig(self._cw, width=e.width)
         )
+
+        # 初期状態を反映（自動取得OFFならリスト非表示）
+        self._on_auto_fetch_toggle()
 
         # 座標直接入力フォーム
         self._build_coord_input_form()
@@ -627,6 +633,16 @@ class BuildingHeightEditor:
         self.brand_status_label.config(
             text=f"カスタム: {os.path.basename(path)}", fg="green"
         )
+
+    def _on_auto_fetch_toggle(self):
+        if self.auto_fetch_var.get():
+            self._filter_frame.pack(fill="x", padx=8, pady=(0, 4))
+            self._list_header.pack(fill="x", padx=8, pady=(0, 1))
+            self._table_outer.pack(fill="both", expand=True, padx=8)
+        else:
+            self._filter_frame.pack_forget()
+            self._list_header.pack_forget()
+            self._table_outer.pack_forget()
 
     def _get_calibration_data(self) -> dict:
         """読み込み済み building_details から calibration データを取得"""
