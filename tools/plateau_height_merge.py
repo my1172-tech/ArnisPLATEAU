@@ -232,6 +232,7 @@ def build_osm_height_patch(
     sv_limit: int = 50,
     building_details: list = None,
     calibration_data: dict = None,
+    brand_db: dict = None,
     log_fn=None,
 ) -> tuple:
     """
@@ -267,8 +268,8 @@ def build_osm_height_patch(
 
     total_overrides = len(manual_coord_overrides) + len(manual_id_overrides) + len(plateau_id_overrides)
     plateau_buildings = fetch_plateau_buildings(bbox)
-    if not plateau_buildings and total_overrides == 0 and not building_details:
-        log_fn("[plateau_height_merge] PLATEAUデータなし・overridesなし・building_detailsなし → OSMパッチをスキップ")
+    if not plateau_buildings and total_overrides == 0 and not building_details and not brand_db:
+        log_fn("[plateau_height_merge] PLATEAUデータなし・overridesなし・building_detailsなし・brand_dbなし → OSMパッチをスキップ")
         return patched, 0
 
     osm_buildings = extract_buildings_with_polygons(osm_data)
@@ -390,17 +391,30 @@ def build_osm_height_patch(
             matched_override = plateau_id_overrides[osm_id]
             height = matched_override.get("height_m")
 
-        # 優先4: PLATEAU APIマッチング
+        # 優先4: ブランドカラーDB（色のみ設定・高さは後続で取得）
+        if height is None and brand_db:
+            _brand_elem = elem_by_id.get(osm_id)
+            if _brand_elem is not None:
+                from brand_color_matcher import match_brand_color
+                brand_colours = match_brand_color(_brand_elem.get("tags", {}), brand_db)
+                if brand_colours:
+                    _brand_elem.setdefault("tags", {})
+                    for _k, _v in brand_colours.items():
+                        _brand_elem["tags"][_k] = _v
+                    if "building:colour" in brand_colours:
+                        _brand_elem["tags"].setdefault("building", "commercial")
+
+        # 優先5: PLATEAU APIマッチング
         if height is None and plateau_buildings and center_lat is not None:
             match = find_building_for_footprint(
                 plateau_buildings, center_lat, center_lon, max_dist_m=max_dist_m
             )
             height = match.get("measured_height") if match else None
 
-        # 優先1-4でのheight取得有無を記録（屋根色はPLATEAUなし建物のみ対象）
+        # 優先1-5でのheight取得有無を記録（屋根色はPLATEAUなし建物のみ対象）
         has_priority_height = height is not None
 
-        # 優先5: building:levels × 3m 補完（いずれもなし・PLATEAU未収録建物のみ）
+        # 優先6: building:levels × 3m 補完（いずれもなし・PLATEAU未収録建物のみ）
         target_elem = elem_by_id.get(osm_id)
         if height is None and target_elem is not None:
             levels_str = target_elem.get("tags", {}).get("building:levels")
@@ -464,11 +478,11 @@ def build_osm_height_patch(
 
         patch_count += 1
 
-    print(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override/levels高さを設定")
+    log_fn(f"[plateau_height_merge] OSMパッチ完了: {patch_count}棟にPLATEAU/override/levels高さを設定")
     if sv_count > 0:
         lv = sv_level_counts
-        print(f"[plateau_height_merge] Street View 壁色・窓パターン: {sv_count}棟 "
-              f"Lv1={lv[1]} Lv2={lv[2]} Lv3={lv[3]} Lv4={lv[4]} Lv5={lv[5]}")
+        log_fn(f"[plateau_height_merge] Street View 壁色・窓パターン: {sv_count}棟 "
+               f"Lv1={lv[1]} Lv2={lv[2]} Lv3={lv[3]} Lv4={lv[4]} Lv5={lv[5]}")
 
     # 道路色の一括適用
     if road_color and road_color in ROAD_COLOR_MAP:
@@ -478,6 +492,6 @@ def build_osm_height_patch(
             if elem.get("type") == "way" and "highway" in elem.get("tags", {}):
                 elem["tags"]["surface"] = surface_val
                 road_count += 1
-        print(f"[plateau_height_merge] 道路色: {road_count}件のhighway wayにsurface={surface_val}を設定")
+        log_fn(f"[plateau_height_merge] 道路色: {road_count}件のhighway wayにsurface={surface_val}を設定")
 
     return patched, patch_count

@@ -145,6 +145,7 @@ class BuildingHeightEditor:
         self.building_type_var = tk.StringVar(value=BUILDING_TYPE_OPTIONS[0][0])
         self.building_details = []
         self.calibration_data: dict = {}
+        self._custom_brand_path: str = None
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("建物高さ調整")
@@ -194,6 +195,20 @@ class BuildingHeightEditor:
             wraplength=600, justify="left", font=("", 8)
         )
         self.bd_names_label.pack(anchor="w", padx=8)
+
+        # ブランドカラーカスタムJSON取り込みボタン
+        frame_brand = tk.Frame(self.dialog)
+        frame_brand.pack(anchor="w", padx=8, pady=(2, 0), fill="x")
+        tk.Button(
+            frame_brand,
+            text="ブランドカラーJSON取り込み（カスタム）",
+            command=self._load_brand_colors_dialog,
+            font=("", 9),
+        ).pack(side="left")
+        self.brand_status_label = tk.Label(
+            frame_brand, text="基本テンプレート使用中", fg="gray", font=("", 9)
+        )
+        self.brand_status_label.pack(side="left", padx=8)
 
         # フィルタ行
         filter_frame = tk.Frame(self.dialog)
@@ -598,6 +613,20 @@ class BuildingHeightEditor:
             self.bd_names_label.config(text=names)
         except Exception as e:
             messagebox.showerror("読み込みエラー", f"JSONの読み込みに失敗しました:\n{e}")
+
+    def _load_brand_colors_dialog(self):
+        """カスタムブランドカラー JSON を取り込む"""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="ブランドカラーJSONを選択",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        self._custom_brand_path = path
+        self.brand_status_label.config(
+            text=f"カスタム: {os.path.basename(path)}", fg="green"
+        )
 
     def _get_calibration_data(self) -> dict:
         """読み込み済み building_details から calibration データを取得"""

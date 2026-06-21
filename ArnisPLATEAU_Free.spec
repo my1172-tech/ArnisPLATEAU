@@ -30,6 +30,8 @@ a = Analysis(
         ('tools\\chunker_converter.py', '.'),
         ('tools\\building_height_editor.py', '.'),
         ('tools\\building_details_loader.py', '.'),
+        ('tools\\brand_color_matcher.py', '.'),
+        ('tools\\brand_colors_default.json', '.'),
         ('tools\\satellite_roof_color.py', '.'),
         ('tools\\streetview_building_color.py', '.'),
         ('tools\\chunker-cli', 'chunker-cli'),

@@ -176,6 +176,7 @@ class ArnisColorizeGUI:
         # 建物詳細JSON（BuildingHeightEditor から受け取る）
         self.building_details: list = []
         self.calibration_data: dict = {}
+        self.custom_brand_path: str = None
 
         # arnis-jp エンジン設定
         self.arnis_jp_path_var = tk.StringVar(value="")
@@ -643,6 +644,7 @@ class ArnisColorizeGUI:
         self.root.wait_window(editor.dialog)
         self.building_details = getattr(editor, "building_details", [])
         self.calibration_data = getattr(editor, "calibration_data", {})
+        self.custom_brand_path = getattr(editor, "_custom_brand_path", None)
 
     def _on_generate_click(self):
         bbox = self._get_current_bbox()
@@ -860,6 +862,13 @@ class ArnisColorizeGUI:
                         with open(osm_raw_path, "r", encoding="utf-8") as f:
                             osm_for_patch = json.load(f)
 
+                        from brand_color_matcher import load_brand_colors
+                        tools_dir = os.path.dirname(os.path.abspath(__file__))
+                        brand_db = load_brand_colors(
+                            tools_dir,
+                            getattr(self, "custom_brand_path", None),
+                        )
+
                         apply_roof_color = self.roof_color_var.get()
                         if apply_roof_color:
                             self._log("屋根色取得: 国土地理院シームレス衛星写真を使用")
@@ -880,6 +889,7 @@ class ArnisColorizeGUI:
                             sv_limit=self.sv_limit_var.get(),
                             building_details=self.building_details,
                             calibration_data=getattr(self, "calibration_data", {}),
+                            brand_db=brand_db,
                             log_fn=self._log,
                         )
 
