@@ -88,12 +88,44 @@ MINECRAFT_BLOCK_TO_COLOR = {
 }
 
 
+GLASS_RATIO_TO_BUILDING = [
+    (0.70, "commercial"),
+    (0.50, "office"),
+    (0.30, "apartments"),
+    (0.15, "residential"),
+    (0.00, "industrial"),
+]
+
+
 def minecraft_block_to_colour(block_name: str) -> Optional[str]:
     """Minecraft ブロック名 → HEX 色文字列に変換"""
     if not block_name:
         return None
     block = block_name.replace("minecraft:", "").strip().lower()
     return MINECRAFT_BLOCK_TO_COLOR.get(block)
+
+
+def glass_ratio_to_building_tag(glass_ratio: float) -> str:
+    for threshold, tag in GLASS_RATIO_TO_BUILDING:
+        if glass_ratio >= threshold:
+            return tag
+    return "industrial"
+
+
+def get_overall_glass_ratio(detail: dict) -> Optional[float]:
+    """building_detail から全体の glass_ratio を取得する"""
+    overall = detail.get("glass_distribution", {}).get("overall", {})
+    if overall.get("glass_ratio") is not None:
+        return float(overall["glass_ratio"])
+    floor_details = detail.get("floor_details", [])
+    ratios = [
+        f["glass_ratio"] for f in floor_details
+        if f.get("glass_ratio") is not None
+        and f.get("usage") not in ("parking", "none")
+    ]
+    if ratios:
+        return sum(ratios) / len(ratios)
+    return None
 
 
 def _haversine_m(lat1, lon1, lat2, lon2):
@@ -202,27 +234,57 @@ def apply_building_detail(elem: dict, detail: dict) -> None:
         if window_colour:
             tags["building:colour:windows"] = window_colour
 
-    # 窓パターン
+    # 窓パターン（explicit > glass_ratio 派生）
     windows = detail.get("windows", {})
     if windows.get("density"):
         tags["window:density"] = str(windows["density"])
+    elif floor1 and floor1.get("glass_ratio") is not None:
+        ratio = float(floor1["glass_ratio"])
+        if ratio >= 0.70:
+            density = 5
+        elif ratio >= 0.50:
+            density = 4
+        elif ratio >= 0.30:
+            density = 3
+        elif ratio >= 0.15:
+            density = 2
+        else:
+            density = 1
+        tags["window:density"] = str(density)
     if windows.get("size"):
         tags["window:size"] = windows["size"]
     if windows.get("pattern"):
         tags["window:pattern"] = windows["pattern"]
 
-    # building タグ（building_type 直接指定 > floor_usage 判定）
+    # フロアのガラス色 → roof:colour（未設定の場合のみ）
+    if not tags.get("roof:colour"):
+        glass_floor = next(
+            (f for f in floor_details
+             if f.get("glass_color") and f.get("glass_ratio", 0) > 0.3),
+            None,
+        )
+        if glass_floor:
+            tags["roof:colour"] = glass_floor["glass_color"]
+
+    # building タグ（building_type > glass_ratio 判定 > floor_usage 判定）
+    building_tag = None
     building_type = detail.get("building_type")
     if building_type:
-        tags["building"] = building_type
-    else:
+        building_tag = building_type
+    if not building_tag or building_tag in ("yes", None):
+        glass_ratio = get_overall_glass_ratio(detail)
+        if glass_ratio is not None:
+            building_tag = glass_ratio_to_building_tag(glass_ratio)
+    if not building_tag:
         floor_usage = detail.get("floor_usage", {})
         if floor_usage:
             usage_counts: dict = {}
             for usage in floor_usage.values():
                 usage_counts[usage] = usage_counts.get(usage, 0) + 1
             dominant_usage = max(usage_counts, key=usage_counts.get)
-            tags["building"] = USAGE_TO_BUILDING_TAG.get(dominant_usage, "yes")
+            building_tag = USAGE_TO_BUILDING_TAG.get(dominant_usage, "yes")
+    if building_tag:
+        tags["building"] = building_tag
 
     # 駐車場ルーバーフロア数
     louver_floors = [f for f in floor_details if f.get("window_pattern") == "louver"]
