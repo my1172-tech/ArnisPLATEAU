@@ -197,33 +197,54 @@ class BuildingHeightEditor:
         )
         self.bd_names_label.pack(anchor="w", padx=8)
 
-        # ブランドカラーカスタムJSON取り込みボタン
-        frame_brand = tk.Frame(self.dialog)
-        frame_brand.pack(anchor="w", padx=8, pady=(2, 0), fill="x")
+        # ブランドカラー設定セクション
+        frame_brand = tk.LabelFrame(self.dialog, text="ブランドカラー設定")
+        frame_brand.pack(fill="x", padx=8, pady=4)
+
+        frame_brand_btn1 = tk.Frame(frame_brand)
+        frame_brand_btn1.pack(anchor="w", padx=8, pady=2)
         tk.Button(
-            frame_brand,
-            text="ブランドカラーJSON取り込み（カスタム）",
+            frame_brand_btn1,
+            text="📤 基本テンプレートを書き出す",
+            command=self._export_brand_colors,
+            font=("", 9),
+        ).pack(side="left", padx=4)
+        tk.Button(
+            frame_brand_btn1,
+            text="📂 カスタムJSONを取り込む",
             command=self._load_brand_colors_dialog,
             font=("", 9),
-        ).pack(side="left")
-        self.brand_status_label = tk.Label(
-            frame_brand, text="基本テンプレート使用中", fg="gray", font=("", 9)
-        )
-        self.brand_status_label.pack(side="left", padx=8)
+        ).pack(side="left", padx=4)
 
-        # ブランドカラー結果取り込みボタン
-        frame_brand_result = tk.Frame(self.dialog)
-        frame_brand_result.pack(anchor="w", padx=8, pady=(2, 0), fill="x")
+        frame_brand_btn2 = tk.Frame(frame_brand)
+        frame_brand_btn2.pack(anchor="w", padx=8, pady=2)
         tk.Button(
-            frame_brand_result,
+            frame_brand_btn2,
+            text="➕ ブランドを単独追加",
+            command=self._add_single_brand,
+            font=("", 9),
+        ).pack(side="left", padx=4)
+        tk.Button(
+            frame_brand_btn2,
             text="📊 ブランドカラー結果を取り込む",
             command=self._load_brand_result_dialog,
             font=("", 9),
-        ).pack(side="left")
-        self.brand_result_label = tk.Label(
-            frame_brand_result, text="", fg="gray", font=("", 9)
+        ).pack(side="left", padx=4)
+
+        self.brand_status_label = tk.Label(
+            frame_brand, text="基本テンプレート使用中", fg="gray", font=("", 9)
         )
-        self.brand_result_label.pack(side="left", padx=8)
+        self.brand_status_label.pack(anchor="w", padx=8, pady=2)
+        tk.Label(
+            frame_brand,
+            text="※カスタムJSONを取り込むと基本テンプレートに追加で適用",
+            fg="gray", font=("", 8),
+        ).pack(anchor="w", padx=8)
+
+        self.brand_result_label = tk.Label(
+            frame_brand, text="", fg="gray", font=("", 9)
+        )
+        self.brand_result_label.pack(anchor="w", padx=8, pady=(0, 4))
 
         # フィルタ行
         self._filter_frame = tk.Frame(self.dialog)
@@ -634,9 +655,112 @@ class BuildingHeightEditor:
         except Exception as e:
             messagebox.showerror("読み込みエラー", f"JSONの読み込みに失敗しました:\n{e}")
 
+    def _export_brand_colors(self):
+        """基本テンプレート(brand_colors_default.json)を任意の場所に書き出す"""
+        import shutil
+        save_path = filedialog.asksaveasfilename(
+            title="ブランドカラーテンプレートを保存",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="brand_colors_custom.json",
+            initialdir=os.path.expanduser("~\\Desktop"),
+        )
+        if not save_path:
+            return
+        tools_dir = os.path.dirname(os.path.abspath(__file__))
+        src_path = os.path.join(tools_dir, "brand_colors_default.json")
+        if not os.path.exists(src_path):
+            tk.messagebox.showerror("エラー", "brand_colors_default.json が見つかりません")
+            return
+        try:
+            shutil.copy2(src_path, save_path)
+            tk.messagebox.showinfo(
+                "書き出し完了",
+                f"テンプレートを保存しました:\n{save_path}\n\n"
+                "メモ帳等で編集後、「カスタムJSONを取り込む」で再読み込みできます。",
+            )
+        except Exception as e:
+            tk.messagebox.showerror("エラー", f"保存に失敗しました:\n{e}")
+
+    def _add_single_brand(self):
+        """1件分のブランドカラーをダイアログで入力して brand_colors_default.json に追記する"""
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("ブランドを単独追加")
+        dialog.geometry("400x320")
+        dialog.grab_set()
+
+        tk.Label(dialog, text="カテゴリ:").grid(row=0, column=0, padx=8, pady=4, sticky="w")
+        category_var = tk.StringVar(value="convenience")
+        ttk.Combobox(
+            dialog,
+            textvariable=category_var,
+            values=["convenience", "fast_food", "restaurant", "supermarket",
+                    "pharmacy", "gas_station", "bank", "hotel", "other"],
+            state="readonly", width=20,
+        ).grid(row=0, column=1, padx=8, pady=4)
+
+        tk.Label(dialog, text="ブランド名:").grid(row=1, column=0, padx=8, pady=4, sticky="w")
+        name_var = tk.StringVar()
+        tk.Entry(dialog, textvariable=name_var, width=25).grid(row=1, column=1, padx=8, pady=4)
+
+        tk.Label(dialog, text="壁ブロック:").grid(row=2, column=0, padx=8, pady=4, sticky="w")
+        wall_var = tk.StringVar(value="white_concrete")
+        tk.Entry(dialog, textvariable=wall_var, width=25).grid(row=2, column=1, padx=8, pady=4)
+
+        tk.Label(dialog, text="屋根ブロック:").grid(row=3, column=0, padx=8, pady=4, sticky="w")
+        roof_var = tk.StringVar(value="gray_concrete")
+        tk.Entry(dialog, textvariable=roof_var, width=25).grid(row=3, column=1, padx=8, pady=4)
+
+        tk.Label(dialog, text="看板ブロック:").grid(row=4, column=0, padx=8, pady=4, sticky="w")
+        sign_var = tk.StringVar(value="white_concrete")
+        tk.Entry(dialog, textvariable=sign_var, width=25).grid(row=4, column=1, padx=8, pady=4)
+
+        result = {"ok": False}
+
+        def _on_ok():
+            if not name_var.get().strip():
+                tk.messagebox.showwarning("入力エラー", "ブランド名を入力してください")
+                return
+            result["ok"] = True
+            dialog.destroy()
+
+        tk.Button(dialog, text="追加", command=_on_ok).grid(
+            row=5, column=0, columnspan=2, pady=12
+        )
+        dialog.wait_window()
+
+        if not result["ok"]:
+            return
+
+        tools_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(tools_dir, "brand_colors_default.json")
+        try:
+            with open(json_path, encoding="utf-8") as f:
+                data = json.load(f)
+            category = category_var.get()
+            if category not in data:
+                data[category] = {}
+            brand_name = name_var.get().strip()
+            data[category][brand_name] = {
+                "wall": wall_var.get().strip(),
+                "roof": roof_var.get().strip(),
+                "sign": sign_var.get().strip(),
+            }
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self.brand_status_label.config(
+                text=f"基本テンプレートに「{brand_name}」を追加しました", fg="green"
+            )
+            tk.messagebox.showinfo(
+                "追加完了",
+                f"「{brand_name}」を {category} カテゴリに追加しました。\n"
+                "次回の生成から反映されます。",
+            )
+        except Exception as e:
+            tk.messagebox.showerror("エラー", f"追加に失敗しました:\n{e}")
+
     def _load_brand_colors_dialog(self):
         """カスタムブランドカラー JSON を取り込む"""
-        from tkinter import filedialog
         path = filedialog.askopenfilename(
             title="ブランドカラーJSONを選択",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
@@ -645,7 +769,7 @@ class BuildingHeightEditor:
             return
         self._custom_brand_path = path
         self.brand_status_label.config(
-            text=f"カスタム: {os.path.basename(path)}", fg="green"
+            text=f"カスタムJSON使用中: {os.path.basename(path)}", fg="blue"
         )
 
     def _load_brand_result_dialog(self):
