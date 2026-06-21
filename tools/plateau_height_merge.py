@@ -233,6 +233,7 @@ def build_osm_height_patch(
     building_details: list = None,
     calibration_data: dict = None,
     brand_db: dict = None,
+    building_threshold: int = None,
     log_fn=None,
 ) -> tuple:
     """
@@ -365,6 +366,7 @@ def build_osm_height_patch(
 
         height = None
         matched_override = None
+        brand_applied = False
 
         # 優先1: 手動座標入力（"manual_..."id）— 近傍50m以内の最近傍を採用（最高優先）
         if manual_coord_overrides and center_lat is not None:
@@ -403,6 +405,7 @@ def build_osm_height_patch(
                         _brand_elem["tags"][_k] = _v
                     if "building:colour" in brand_colours:
                         _brand_elem["tags"].setdefault("building", "commercial")
+                    brand_applied = True
                     log_fn(
                         f"[brand_colors] {_brand_elem.get('tags', {}).get('name', '?')}: "
                         f"building:colour={brand_colours.get('building:colour', 'なし')} "
@@ -445,6 +448,13 @@ def build_osm_height_patch(
         building_type = matched_override.get("building_type", "") if matched_override else ""
         if building_type:
             target_elem["tags"]["building"] = building_type
+
+        # 一軒家/ビル切替え（ブランドカラー適用済みはスキップ）
+        if not brand_applied and building_threshold is not None:
+            if height < building_threshold:
+                target_elem["tags"].setdefault("building", "house")
+            else:
+                target_elem["tags"].setdefault("building", "yes")
 
         # Street View 壁色取得（上限棟数以内・全建物対象）
         if apply_building_color and streetview_api_key and sv_count < sv_limit and center_lat is not None:

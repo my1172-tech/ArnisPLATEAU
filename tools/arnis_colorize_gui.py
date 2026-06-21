@@ -942,6 +942,7 @@ class ArnisColorizeGUI:
                             building_details=self.building_details,
                             calibration_data=getattr(self, "calibration_data", {}),
                             brand_db=brand_db,
+                            building_threshold=self.building_threshold_var.get(),
                             log_fn=self._log,
                         )
 
