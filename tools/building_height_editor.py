@@ -568,8 +568,13 @@ class BuildingHeightEditor:
             return
 
         try:
+            import re
             with open(path, encoding="utf-8") as f:
-                data = json.load(f)
+                raw = f.read()
+            # マークダウン ```json...``` ブロックが含まれる場合は JSON 部分だけを抽出
+            m = re.search(r'```json\s*([\s\S]*?)\s*```', raw)
+            json_str = m.group(1) if m else raw
+            data = json.loads(json_str)
             buildings = data.get("buildings", [])
             if not buildings:
                 messagebox.showwarning(
