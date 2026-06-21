@@ -115,10 +115,13 @@ def match_brand_color(
     result = {}
     wall_block = brand_entry.get("wall", "")
     roof_block = brand_entry.get("roof", "")
+    roof_shape = brand_entry.get("roof_shape", "")
 
     if wall_block in BLOCK_TO_HEX:
         result["building:colour"] = BLOCK_TO_HEX[wall_block]
     if roof_block in BLOCK_TO_HEX:
         result["roof:colour"] = BLOCK_TO_HEX[roof_block]
+    if roof_shape:
+        result["roof:shape"] = roof_shape
 
     return result if result else None
