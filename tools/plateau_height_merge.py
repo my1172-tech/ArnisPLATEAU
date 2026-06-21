@@ -428,7 +428,8 @@ def build_osm_height_patch(
                     for _k, _v in brand_colours.items():
                         _brand_elem["tags"][_k] = _v
                     if "building:colour" in brand_colours:
-                        _brand_elem["tags"].setdefault("building", "commercial")
+                        if _brand_elem["tags"].get("building", "yes") in ("yes", ""):
+                            _brand_elem["tags"]["building"] = "commercial"
                     brand_applied = True
                     brand_results.append({
                         "osm_id": osm_id,
