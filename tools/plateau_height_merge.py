@@ -16,6 +16,19 @@ from osm_building_extractor import extract_buildings_with_polygons
 
 FOOTPRINT_MODES = ("skip", "shrink", "priority")
 
+BUILDING_SKIP_TAGS = {
+    "office", "commercial", "retail", "industrial",
+    "warehouse", "hotel", "apartments", "university",
+    "hospital", "school", "church", "cathedral",
+    "government", "civic", "public", "train_station",
+    "transportation", "stadium", "sports_hall",
+}
+
+HOUSE_TAGS = {
+    "house", "detached", "semidetached_house", "terrace",
+    "bungalow", "farm", "cabin", "yes",
+}
+
 ROAD_COLOR_MAP = {
     "black":      "black_concrete",
     "gray":       "gray_concrete",
@@ -449,12 +462,14 @@ def build_osm_height_patch(
         if building_type:
             target_elem["tags"]["building"] = building_type
 
-        # 一軒家/ビル切替え（ブランドカラー適用済みはスキップ）
-        if not brand_applied and building_threshold is not None:
-            if height < building_threshold:
-                target_elem["tags"].setdefault("building", "house")
-            else:
-                target_elem["tags"].setdefault("building", "yes")
+        # 一軒家/ビル切替え（ブランドカラー適用済み・既存ビル系タグはスキップ）
+        if (not brand_applied
+                and building_threshold is not None
+                and height is not None
+                and height >= building_threshold):
+            current_building = target_elem["tags"].get("building", "yes")
+            if current_building in HOUSE_TAGS:
+                target_elem["tags"]["building"] = "office"
 
         # Street View 壁色取得（上限棟数以内・全建物対象）
         if apply_building_color and streetview_api_key and sv_count < sv_limit and center_lat is not None:
