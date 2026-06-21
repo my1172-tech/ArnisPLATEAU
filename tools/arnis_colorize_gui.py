@@ -177,6 +177,12 @@ class ArnisColorizeGUI:
         self.building_details: list = []
         self.calibration_data: dict = {}
 
+        # arnis-jp エンジン設定
+        self.arnis_jp_path_var = tk.StringVar(value="")
+        self.use_arnis_jp_var = tk.BooleanVar(value=False)
+        self.use_satellite_var = tk.BooleanVar(value=True)
+        self.use_gsi_var = tk.BooleanVar(value=True)
+
         # 検証用基準点
         self.calib_rows = []
 
@@ -198,6 +204,7 @@ class ArnisColorizeGUI:
         self._build_top_row(inner)
         self._build_calibration_section(inner)
         self._build_gsi_section(inner)
+        self._build_engine_section(inner)
         self._build_world_gen_section(inner)
 
         if PRO_MODE:
@@ -537,6 +544,53 @@ class ArnisColorizeGUI:
         self.sv_limit_var.trace_add("write", self._update_sv_cost)
         self._update_sv_cost()
 
+    # ── 生成エンジンセクション (TASK 23) ─────────────────────────────────────
+
+    def _build_engine_section(self, parent):
+        frame = tk.LabelFrame(parent, text="生成エンジン", padx=8, pady=8)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(frame, text="arnis-jp exe:").pack(anchor="w")
+        frame_jp_path = tk.Frame(frame)
+        frame_jp_path.pack(fill="x", pady=2)
+        tk.Entry(frame_jp_path, textvariable=self.arnis_jp_path_var,
+                 width=40).pack(side="left")
+        tk.Button(frame_jp_path, text="参照",
+                  command=self._browse_arnis_jp).pack(side="left", padx=4)
+
+        tk.Checkbutton(
+            frame,
+            text="第2段階に arnis-jp を使用（衛星画像色・国土地理院）",
+            variable=self.use_arnis_jp_var,
+        ).pack(anchor="w", pady=(4, 0))
+
+        tk.Checkbutton(
+            frame,
+            text="衛星画像から壁色を自動取得（--satellite）",
+            variable=self.use_satellite_var,
+        ).pack(anchor="w", padx=(20, 0))
+
+        tk.Checkbutton(
+            frame,
+            text="国土地理院建物データを統合（--gsi）",
+            variable=self.use_gsi_var,
+        ).pack(anchor="w", padx=(20, 0))
+
+        tk.Label(
+            frame,
+            text="※ arnis-jp フォーク（v2.5.1）のみ対応。--satellite / --gsi は本家 arnis では無効",
+            fg="gray", font=("", 8),
+        ).pack(anchor="w")
+
+    def _browse_arnis_jp(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="arnis-jp exe を選択",
+            filetypes=[("Executable", "*.exe"), ("All files", "*.*")],
+        )
+        if path:
+            self.arnis_jp_path_var.set(path)
+
     # ── ワールド生成セクション (TASK 3) ──────────────────────────────────────
 
     def _build_world_gen_section(self, parent):
@@ -835,19 +889,34 @@ class ArnisColorizeGUI:
                         self._log(f"[ArnisPLATEAU] {patch_count}棟の建物高さを更新しました")
 
                         # 第2段階: PLATEAU高さ込みでワールド再生成
+                        use_jp = self.use_arnis_jp_var.get()
+                        arnis_jp_path = self.arnis_jp_path_var.get()
+                        use_satellite = self.use_satellite_var.get()
+                        use_gsi = self.use_gsi_var.get()
+
+                        if use_jp and arnis_jp_path and os.path.exists(arnis_jp_path):
+                            arnis_exe_stage2 = arnis_jp_path
+                            self._log(f"第2段階エンジン: arnis-jp（{os.path.basename(arnis_jp_path)}）")
+                        else:
+                            arnis_exe_stage2 = arnis_exe
+                            use_satellite = False
+                            use_gsi = False
+
                         self._log("[ArnisPLATEAU] 第2段階: PLATEAU高さ込みでワールド再生成中...")
                         self.root.after(0, lambda: self.lbl_gen_status.config(text="第2段階: ワールド再生成中..."))
 
                         stage2_start_time = time.time()
                         launcher2 = ArnisLauncher()
                         launcher2.launch(
-                            arnis_exe,
+                            arnis_exe_stage2,
                             bbox=bbox,
                             output_dir=output_dir,
                             bedrock=False,
                             osm_file=osm_plateau_path,
                             spawn_lat=spawn_lat,
                             spawn_lon=spawn_lon,
+                            use_satellite=use_satellite,
+                            use_gsi=use_gsi,
                         )
                         self._log("[STAGE2 CMD] " + " ".join(launcher2.last_cmd))
 
@@ -1497,6 +1566,10 @@ class ArnisColorizeGUI:
                 self.sv_api_key_var.set(cfg.get("streetview_api_key", ""))
                 self.apply_building_color_var.set(bool(cfg.get("apply_building_color", False)))
                 self.sv_limit_var.set(int(cfg.get("sv_limit", 50)))
+                self.arnis_jp_path_var.set(cfg.get("arnis_jp_exe", ""))
+                self.use_arnis_jp_var.set(bool(cfg.get("use_arnis_jp_stage2", False)))
+                self.use_satellite_var.set(bool(cfg.get("use_satellite", True)))
+                self.use_gsi_var.set(bool(cfg.get("use_gsi", True)))
         except Exception:
             pass
         # デフォルトのダウンロードフォルダを未設定時に補完
@@ -1519,6 +1592,10 @@ class ArnisColorizeGUI:
             cfg["streetview_api_key"] = self.sv_api_key_var.get()
             cfg["apply_building_color"] = self.apply_building_color_var.get()
             cfg["sv_limit"] = self.sv_limit_var.get()
+            cfg["arnis_jp_exe"] = self.arnis_jp_path_var.get()
+            cfg["use_arnis_jp_stage2"] = self.use_arnis_jp_var.get()
+            cfg["use_satellite"] = self.use_satellite_var.get()
+            cfg["use_gsi"] = self.use_gsi_var.get()
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:

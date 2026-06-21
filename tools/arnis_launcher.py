@@ -30,6 +30,8 @@ def build_arnis_args(
     ground_level: int = -62,
     timeout: int | None = None,
     available_flags: dict | None = None,
+    use_satellite: bool = False,
+    use_gsi: bool = False,
 ) -> list[str]:
     """
     利用可能なフラグをチェックしながら arnis CLIコマンドリストを構築する。
@@ -70,6 +72,10 @@ def build_arnis_args(
         args += ["--ground-level", str(ground_level)]
     if timeout is not None and has("--timeout"):
         args += ["--timeout", str(timeout)]
+    if use_satellite and (available_flags is None or available_flags.get("--satellite", False)):
+        args.append("--satellite")
+    if use_gsi and (available_flags is None or available_flags.get("--gsi", False)):
+        args.append("--gsi")
     return args
 
 class ArnisLauncher:
@@ -92,6 +98,8 @@ class ArnisLauncher:
         save_json_path: str = None,
         osm_file: str = None,
         available_flags: dict = None,
+        use_satellite: bool = False,
+        use_gsi: bool = False,
     ):
         """
         arnis-windows.exe を CLI モードで起動する。
@@ -116,6 +124,8 @@ class ArnisLauncher:
             spawn_lat=spawn_lat,
             spawn_lon=spawn_lon,
             available_flags=available_flags,
+            use_satellite=use_satellite,
+            use_gsi=use_gsi,
         )
         self.last_cmd = args  # 呼び出し元からログ出力できるよう保存
 
